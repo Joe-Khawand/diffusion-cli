@@ -7,7 +7,8 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from diffusion.cli import app
-from diffusion.core.models import ModelEntry, PipelineKind
+from diffusion.core import registry
+from diffusion.core.models import ModelEntry
 from diffusion.utils.errors import ModelNotCachedError
 
 runner = CliRunner()
@@ -16,7 +17,7 @@ runner = CliRunner()
 def _entry(repo_id: str) -> ModelEntry:
     return ModelEntry(
         repo_id=repo_id,
-        kind=PipelineKind.SDXL,
+        family=registry.by_class_name("StableDiffusionXLPipeline"),
         size_on_disk=6_900_000_000,
         size_on_disk_str="6.9G",
         last_modified=1.0,

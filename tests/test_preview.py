@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from diffusion.core.models import PipelineKind
+from diffusion.core import registry
+
+_SD15 = registry.by_class_name("StableDiffusionPipeline")
+_FLUX = registry.by_class_name("FluxPipeline")
+_PIXART = registry.by_class_name("PixArtSigmaPipeline")  # no preview spec
 
 
 def test_latents_to_preview_sd15_shape() -> None:
@@ -11,19 +15,31 @@ def test_latents_to_preview_sd15_shape() -> None:
     from diffusion.core.preview import latents_to_preview
 
     latents = torch.randn(1, 4, 64, 96)  # (B, C, H, W)
-    img = latents_to_preview(latents, PipelineKind.SD15)
+    img = latents_to_preview(latents, _SD15)
     assert img is not None
     assert img.size == (96, 64)  # PIL is (W, H)
     assert img.mode == "RGB"
 
 
-def test_latents_to_preview_unsupported_kind() -> None:
+def test_latents_to_preview_flux_16ch() -> None:
     import torch
 
     from diffusion.core.preview import latents_to_preview
 
-    # FLUX latents (16 ch) have no factor table -> skipped.
-    assert latents_to_preview(torch.randn(1, 16, 64, 64), PipelineKind.FLUX) is None
+    # FLUX now has a 16-channel preview projection.
+    img = latents_to_preview(torch.randn(1, 16, 32, 32), _FLUX)
+    assert img is not None
+    assert img.size == (32, 32)
+    assert img.mode == "RGB"
+
+
+def test_latents_to_preview_family_without_spec() -> None:
+    import torch
+
+    from diffusion.core.preview import latents_to_preview
+
+    # PixArt has no preview factors -> skipped.
+    assert latents_to_preview(torch.randn(1, 4, 64, 64), _PIXART) is None
 
 
 def test_latents_to_preview_channel_mismatch() -> None:
@@ -32,7 +48,7 @@ def test_latents_to_preview_channel_mismatch() -> None:
     from diffusion.core.preview import latents_to_preview
 
     # SD15 expects 4 channels; mismatched input returns None rather than crashing.
-    assert latents_to_preview(torch.randn(1, 8, 64, 64), PipelineKind.SD15) is None
+    assert latents_to_preview(torch.randn(1, 8, 64, 64), _SD15) is None
 
 
 def test_detect_protocol_env(monkeypatch) -> None:

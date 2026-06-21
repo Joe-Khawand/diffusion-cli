@@ -27,5 +27,5 @@ def run_list(*, all_models: bool = False) -> None:
     table.add_column("Type", style="cyan")
     table.add_column("Size", justify="right")
     for entry in entries:
-        table.add_row(entry.repo_id, str(entry.kind), entry.size_on_disk_str)
+        table.add_row(entry.repo_id, entry.family.label, entry.size_on_disk_str)
     console.print(table)

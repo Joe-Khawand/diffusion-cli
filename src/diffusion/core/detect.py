@@ -1,13 +1,14 @@
-"""Pipeline-type auto-detection.
+"""Pipeline-family auto-detection.
 
 Pure functions: no torch, no diffusers, no network. Detection reads the JSON
 metadata that diffusers-format repos ship (``model_index.json`` and component
-``config.json`` files) and maps it to a :class:`PipelineKind`.
+``config.json`` files) and maps it to a :class:`ModelFamily` from the registry.
 
 Signal priority:
-  1. ``model_index.json`` ``_class_name`` (authoritative).
-  2. Component fingerprint (which sub-folders/keys are present).
-  3. ``unet/config.json`` cross-attention dim (SD1.5 vs SDXL disambiguation).
+  1. ``model_index.json`` ``_class_name`` mapped via the registry (authoritative).
+  2. Any other ``*Pipeline`` ``_class_name`` -> permissive ``GENERIC`` family.
+  3. Component fingerprint (which sub-folders/keys are present).
+  4. ``unet/config.json`` cross-attention dim (SD1.5 vs SDXL disambiguation).
 """
 
 from __future__ import annotations
@@ -15,20 +16,17 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from diffusion.core.models import PipelineKind
+from diffusion.core import registry
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-# Concrete diffusers pipeline class names -> family.
-_CLASS_NAME_MAP: dict[str, PipelineKind] = {
-    "StableDiffusionPipeline": PipelineKind.SD15,
-    "StableDiffusionImg2ImgPipeline": PipelineKind.SD15,
-    "StableDiffusionXLPipeline": PipelineKind.SDXL,
-    "StableDiffusionXLImg2ImgPipeline": PipelineKind.SDXL,
-    "StableDiffusion3Pipeline": PipelineKind.SD3,
-    "FluxPipeline": PipelineKind.FLUX,
-}
+    from diffusion.core.models import ModelFamily
+
+_SDXL = registry.require("StableDiffusionXLPipeline")
+_SD15 = registry.require("StableDiffusionPipeline")
+_SD3 = registry.require("StableDiffusion3Pipeline")
+_FLUX = registry.require("FluxPipeline")
 
 
 def _read_json(path: Path) -> dict | None:
@@ -40,54 +38,64 @@ def _read_json(path: Path) -> dict | None:
         return None
 
 
-def detect_kind(snapshot_dir: Path) -> PipelineKind:
-    """Detect the pipeline family from a local model snapshot directory."""
+def detect_family(snapshot_dir: Path) -> ModelFamily:
+    """Detect the model family from a local diffusers snapshot directory."""
     index = _read_json(snapshot_dir / "model_index.json")
     if index is None:
-        return PipelineKind.UNKNOWN
+        return registry.UNKNOWN
 
-    # 1. Authoritative class name.
     class_name = index.get("_class_name")
-    if isinstance(class_name, str) and class_name in _CLASS_NAME_MAP:
-        kind = _CLASS_NAME_MAP[class_name]
-        # SD line class is shared by SD1.5/SD2.x — disambiguate XL via components.
-        if kind is PipelineKind.SD15:
-            return _refine_sd_line(snapshot_dir, index)
-        return kind
+    class_name = class_name if isinstance(class_name, str) else None
 
-    # 2. Component fingerprint fallback.
+    # Non-image pipelines (video/audio) are flagged, not optimistically routed.
+    if registry.is_non_image(class_name):
+        return registry.UNKNOWN
+
+    # 1. Authoritative: a curated family for this diffusers class.
+    family = registry.by_class_name(class_name)
+    if family is not None:
+        # The SD line class is shared by SD1.5/SD2.x — disambiguate XL.
+        if family is _SD15:
+            return _refine_sd_line(snapshot_dir, index)
+        return family
+
+    # 2. Unknown but recognizable diffusers pipeline -> trust AutoPipeline.
+    if class_name and class_name.endswith("Pipeline"):
+        return registry.GENERIC
+
+    # 3. No class name: fall back to a component fingerprint.
     return _fingerprint(snapshot_dir, index)
 
 
-def _fingerprint(snapshot_dir: Path, index: dict) -> PipelineKind:
+def _fingerprint(snapshot_dir: Path, index: dict) -> ModelFamily:
     keys = set(index.keys())
     has_unet = "unet" in keys
     has_transformer = "transformer" in keys
 
     if has_transformer and "text_encoder_3" in keys:
-        return PipelineKind.SD3
+        return _SD3
     if has_transformer and not has_unet:
-        return PipelineKind.FLUX
+        return _FLUX
     if has_unet and "text_encoder_2" in keys:
-        return PipelineKind.SDXL
+        return _SDXL
     if has_unet:
         return _refine_sd_line(snapshot_dir, index)
-    return PipelineKind.UNKNOWN
+    return registry.UNKNOWN
 
 
-def _refine_sd_line(snapshot_dir: Path, index: dict) -> PipelineKind:
+def _refine_sd_line(snapshot_dir: Path, index: dict) -> ModelFamily:
     """Distinguish SDXL from SD1.5 using component hints, then UNet config."""
     if "text_encoder_2" in index:
-        return PipelineKind.SDXL
+        return _SDXL
 
     unet_config = _read_json(snapshot_dir / "unet" / "config.json")
     if unet_config is not None:
         if unet_config.get("addition_embed_type") == "text_time":
-            return PipelineKind.SDXL
+            return _SDXL
         cross_dim = unet_config.get("cross_attention_dim")
         if isinstance(cross_dim, int) and cross_dim >= 2048:
-            return PipelineKind.SDXL
-    return PipelineKind.SD15
+            return _SDXL
+    return _SD15
 
 
 def list_components(snapshot_dir: Path) -> list[str]:

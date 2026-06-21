@@ -10,17 +10,18 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from diffusion.core.models import PipelineKind
+    from diffusion.core.models import ModelFamily
 
 
-def apply_optimizations(pipe, device: str, kind: PipelineKind, *, low_mem: bool) -> None:
+def apply_optimizations(pipe, device: str, family: ModelFamily, *, low_mem: bool) -> None:
     """Configure ``pipe`` for ``device``; returns nothing (mutates in place).
 
-    - SD1.5/SDXL on adequate memory: place on device, no slicing (keeps it fast).
-    - FLUX/SD3 or ``--low-mem``: enable slicing + sequential CPU offload instead
-      of ``.to(device)``.
+    - Light families (SD1.5/SDXL) on adequate memory: place on device, no slicing
+      (keeps it fast).
+    - Memory-heavy families or ``--low-mem``: enable slicing + sequential CPU
+      offload instead of ``.to(device)``.
     """
-    use_offload = low_mem or kind.is_memory_heavy
+    use_offload = low_mem or family.memory_heavy
 
     if use_offload:
         # Slicing reduces peak memory; pair with offload for large models / low VRAM.

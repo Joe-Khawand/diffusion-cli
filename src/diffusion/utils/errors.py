@@ -28,12 +28,13 @@ class ModelNotCachedError(DiffusionError):
 
 
 class UnsupportedPipelineError(DiffusionError):
-    """The model is not a diffusion text-to-image pipeline we can run."""
+    """The model is not a diffusion image pipeline we can run."""
 
     def __init__(self, repo_id: str, detail: str) -> None:
         super().__init__(
-            f"Model '{repo_id}' is not a supported text-to-image pipeline: {detail}",
-            hint="Phase 1 supports SD 1.5, SDXL, SD3, and FLUX text-to-image models.",
+            f"Model '{repo_id}' is not a supported image pipeline: {detail}",
+            hint="Run 'diffusion catalog' to see supported families. Most diffusers "
+            "text-to-image repos work; video/audio pipelines do not.",
         )
         self.repo_id = repo_id
 

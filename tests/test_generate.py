@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-from diffusion.core.generate import generate
-from diffusion.core.models import PipelineKind
+from diffusion.core import registry
+from diffusion.core.generate import generate, run_inference
 from diffusion.utils.errors import UnsupportedPipelineError
+
+_SDXL = registry.by_class_name("StableDiffusionXLPipeline")
+_FLUX = registry.by_class_name("FluxPipeline")
 
 
 @pytest.fixture
@@ -30,7 +34,7 @@ def patched(mocker, tmp_path):
 
 
 def test_generate_saves_image_and_sidecar(mocker, patched, tmp_path):
-    mocker.patch("diffusion.core.detect.detect_kind", return_value=PipelineKind.SDXL)
+    mocker.patch("diffusion.core.detect.detect_family", return_value=_SDXL)
     out = tmp_path / "out.png"
 
     result = generate(
@@ -49,7 +53,7 @@ def test_generate_saves_image_and_sidecar(mocker, patched, tmp_path):
 
     assert result == out
     patched.image.save.assert_called_once_with(out)
-    # negative_prompt should be forwarded for SDXL
+    # negative_prompt should be forwarded for SDXL (MagicMock accepts **kwargs)
     _, kwargs = patched.pipe.call_args
     assert kwargs["negative_prompt"] == "blurry"
     assert kwargs["num_inference_steps"] == 10
@@ -57,10 +61,11 @@ def test_generate_saves_image_and_sidecar(mocker, patched, tmp_path):
     sidecar = out.with_suffix(".png.json")
     meta = json.loads(sidecar.read_text())
     assert meta["repo_id"] == "org/sdxl" and meta["seed"] == 42 and meta["kind"] == "sdxl"
+    assert meta["task"] == "text2img"
 
 
 def test_generate_rejects_unknown_pipeline(mocker, patched, tmp_path):
-    mocker.patch("diffusion.core.detect.detect_kind", return_value=PipelineKind.UNKNOWN)
+    mocker.patch("diffusion.core.detect.detect_family", return_value=registry.UNKNOWN)
     with pytest.raises(UnsupportedPipelineError):
         generate(
             repo_id="org/whatever",
@@ -78,7 +83,7 @@ def test_generate_rejects_unknown_pipeline(mocker, patched, tmp_path):
 
 
 def test_flux_omits_negative_prompt(mocker, patched, tmp_path):
-    mocker.patch("diffusion.core.detect.detect_kind", return_value=PipelineKind.FLUX)
+    mocker.patch("diffusion.core.detect.detect_family", return_value=_FLUX)
     generate(
         repo_id="org/flux",
         prompt="a cat",
@@ -94,3 +99,46 @@ def test_flux_omits_negative_prompt(mocker, patched, tmp_path):
     )
     _, kwargs = patched.pipe.call_args
     assert "negative_prompt" not in kwargs
+
+
+class _NarrowPipe:
+    """A pipeline whose __call__ only accepts a few keyword args."""
+
+    def __init__(self) -> None:
+        self.captured: dict | None = None
+
+    def __call__(self, *, prompt, num_inference_steps, image=None, strength=None, generator=None):
+        self.captured = {
+            "prompt": prompt,
+            "num_inference_steps": num_inference_steps,
+            "image": image,
+            "strength": strength,
+        }
+        return SimpleNamespace(images=["IMG"])
+
+
+def test_run_inference_filters_unsupported_kwargs(mocker):
+    # width/height/negative_prompt are dropped because __call__ doesn't accept them;
+    # strength is forwarded because it does.
+    plan = SimpleNamespace(device="cpu", dtype="float32")
+    pipe = _NarrowPipe()
+    img = run_inference(
+        pipe,
+        _SDXL,
+        plan,
+        prompt="a cat",
+        negative_prompt="blurry",
+        steps=7,
+        width=1024,
+        height=1024,
+        seed=None,
+        low_mem=False,
+        strength=0.5,
+    )
+    assert img == "IMG"
+    assert pipe.captured == {
+        "prompt": "a cat",
+        "num_inference_steps": 7,
+        "image": None,
+        "strength": 0.5,
+    }

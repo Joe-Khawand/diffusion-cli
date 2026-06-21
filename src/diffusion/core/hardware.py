@@ -8,10 +8,12 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
-from diffusion.core.models import DeviceInfo, PipelineKind
+from diffusion.core.models import DeviceInfo
 
 if TYPE_CHECKING:
     import torch
+
+    from diffusion.core.models import ModelFamily
 
 _VALID_DEVICES = {"mps", "cuda", "cpu"}
 _VALID_DTYPES = {"float16", "bfloat16", "float32"}
@@ -42,7 +44,7 @@ def detect_device(override: str | None = None) -> str:
     return "cpu"
 
 
-def select_dtype(device: str, kind: PipelineKind, override: str | None = None) -> str:
+def select_dtype(device: str, family: ModelFamily, override: str | None = None) -> str:
     """Pick a sensible dtype string for the device/family."""
     if override is not None:
         if override not in _VALID_DTYPES:
@@ -55,19 +57,19 @@ def select_dtype(device: str, kind: PipelineKind, override: str | None = None) -
     if device == "cpu":
         return "float32"
     if device == "cuda":
-        # FLUX/SD3 are trained in bf16; Ampere+ supports it well.
-        return "bfloat16" if kind.is_memory_heavy else "float16"
+        # Each family declares its preferred cuda dtype (bf16 for the big DiTs).
+        return family.cuda_dtype
     # mps: float16 is the pragmatic fast default for SD/SDXL.
     return "float16"
 
 
 def resolve(
-    *, kind: PipelineKind, device_override: str | None, dtype_override: str | None
+    *, family: ModelFamily, device_override: str | None, dtype_override: str | None
 ) -> DeviceInfo:
     """Resolve the full device + dtype plan for a run."""
     enable_mps_fallback()
     device = detect_device(device_override)
-    dtype = select_dtype(device, kind, dtype_override)
+    dtype = select_dtype(device, family, dtype_override)
     return DeviceInfo(device=device, dtype=dtype)
 
 

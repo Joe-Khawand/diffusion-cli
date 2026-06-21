@@ -75,6 +75,14 @@ def info(
 
 
 @app.command()
+def catalog() -> None:
+    """List supported model families and example HuggingFace repos to pull."""
+    from diffusion.commands.catalog import run_catalog
+
+    run_catalog()
+
+
+@app.command()
 def remove(
     repo_id: Annotated[str, typer.Argument(help="HuggingFace repo id to delete from the cache.")],
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation.")] = False,
@@ -110,8 +118,28 @@ def run(
     low_mem: Annotated[
         bool, typer.Option("--low-mem", help="Enable slicing + CPU offload for low memory.")
     ] = False,
+    image: Annotated[
+        Path | None,
+        typer.Option("--image", "-i", help="Init image for img2img / inpaint."),
+    ] = None,
+    mask: Annotated[
+        Path | None, typer.Option("--mask", help="Mask image for inpaint (white = repaint).")
+    ] = None,
+    strength: Annotated[
+        float | None, typer.Option("--strength", help="img2img/inpaint strength, 0–1.")
+    ] = None,
+    guidance_scale: Annotated[
+        float | None, typer.Option("--guidance-scale", help="Classifier-free guidance scale.")
+    ] = None,
+    controlnet: Annotated[
+        str | None, typer.Option("--controlnet", help="ControlNet model repo id to condition on.")
+    ] = None,
+    control_image: Annotated[
+        Path | None,
+        typer.Option("--control-image", help="Pre-processed control map (canny/depth/…)."),
+    ] = None,
 ) -> None:
-    """Generate an image from a text prompt."""
+    """Generate an image from a text prompt (text2img, img2img, inpaint, ControlNet)."""
     from diffusion.commands.run import run_generate
 
     run_generate(
@@ -126,6 +154,12 @@ def run(
         device=device,
         dtype=dtype,
         low_mem=low_mem,
+        init_image=image,
+        mask_image=mask,
+        control_image=control_image,
+        controlnet=controlnet,
+        strength=strength,
+        guidance_scale=guidance_scale,
     )
 
 

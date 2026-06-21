@@ -8,8 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from diffusion.core import cache
-from diffusion.core.models import PipelineKind
+from diffusion.core import cache, registry
 from diffusion.utils.errors import ModelNotCachedError
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -46,7 +45,7 @@ def test_list_models_filters_non_diffusion(tmp_path, mocker):
 
     entries = cache.list_models()
     assert [e.repo_id for e in entries] == ["org/sdxl"]
-    assert entries[0].kind is PipelineKind.SDXL
+    assert entries[0].family.id == "sdxl"
 
     all_entries = cache.list_models(include_all=True)
     assert {e.repo_id for e in all_entries} == {"org/sdxl", "org/llm"}
@@ -58,7 +57,7 @@ def test_get_info_found_and_missing(tmp_path, mocker):
     mocker.patch("huggingface_hub.scan_cache_dir", return_value=cache_info)
 
     entry = cache.get_info("org/sd15")
-    assert entry.kind is PipelineKind.SD15
+    assert entry.family.id == "sd1.5"
     assert "unet" in entry.components
 
     with pytest.raises(ModelNotCachedError):
@@ -88,12 +87,25 @@ def test_remove_missing_raises(mocker):
         cache.remove("org/missing")
 
 
-def test_pull_returns_kind(tmp_path, mocker):
+def test_pull_returns_family(tmp_path, mocker):
     snap = _make_repo_dir(tmp_path, "org/flux", "model_index_flux.json")
     mocker.patch("huggingface_hub.snapshot_download", return_value=str(snap))
-    path, kind = cache.pull("org/flux")
+    path, family = cache.pull("org/flux")
     assert path == snap
-    assert kind is PipelineKind.FLUX
+    assert family.id == "flux"
+
+
+def test_peek_family_reads_only_model_index(tmp_path, mocker):
+    snap = _make_repo_dir(tmp_path, "org/sdxl", "model_index_sdxl.json")
+    mocker.patch("huggingface_hub.hf_hub_download", return_value=str(snap / "model_index.json"))
+    assert cache.peek_family("org/sdxl").id == "sdxl"
+
+
+def test_peek_family_missing_index_is_unknown(mocker):
+    from huggingface_hub.errors import EntryNotFoundError
+
+    mocker.patch("huggingface_hub.hf_hub_download", side_effect=EntryNotFoundError("nope"))
+    assert cache.peek_family("org/llm") is registry.UNKNOWN
 
 
 def test_resolve_local_missing(mocker):

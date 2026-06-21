@@ -25,6 +25,7 @@ class _Settings:
     seed: int | None
     negative_prompt: str | None
     outdir: Path
+    guidance_scale: float | None = None
 
 
 def run_chat(
@@ -83,11 +84,11 @@ def run_chat(
         )
 
     console.print(f"Loading [bold]{repo_id}[/bold] …")
-    pipe, kind, plan = generate.load_pipeline(
+    pipe, family, plan = generate.load_pipeline(
         repo_id, device_override=device, dtype_override=dtype, low_mem=low_mem
     )
     console.print(
-        f"[green]✓[/green] [bold]{repo_id}[/bold] ([cyan]{kind}[/cyan]) ready on "
+        f"[green]✓[/green] [bold]{repo_id}[/bold] ([cyan]{family.label}[/cyan]) ready on "
         f"[magenta]{plan.device}[/magenta]/{plan.dtype}."
     )
     _print_help()
@@ -126,7 +127,7 @@ def run_chat(
             generate,
             write_sidecar,
             pipe,
-            kind,
+            family,
             plan,
             line,
             settings,
@@ -141,7 +142,7 @@ def _generate_one(
     generate,
     write_sidecar,
     pipe,
-    kind,
+    family,
     plan,
     prompt,
     settings,
@@ -165,7 +166,7 @@ def _generate_one(
     start = time.perf_counter()
     image = generate.run_inference(
         pipe,
-        kind,
+        family,
         plan,
         prompt=prompt,
         negative_prompt=settings.negative_prompt,
@@ -174,6 +175,7 @@ def _generate_one(
         height=settings.height,
         seed=settings.seed,
         low_mem=False,
+        guidance_scale=settings.guidance_scale,
         on_preview=on_preview if renderer else None,
     )
     elapsed = time.perf_counter() - start
@@ -188,7 +190,7 @@ def _generate_one(
     write_sidecar(
         output,
         repo_id=repo_id,
-        kind=kind,
+        family=family,
         prompt=prompt,
         negative_prompt=settings.negative_prompt,
         steps=settings.steps,
@@ -213,6 +215,8 @@ def _handle_command(line: str, settings: _Settings) -> None:
             settings.seed = None if arg in ("", "none", "random") else int(arg)
         elif cmd == "/neg":
             settings.negative_prompt = arg or None
+        elif cmd == "/cfg":
+            settings.guidance_scale = None if arg in ("", "none", "default") else float(arg)
         elif cmd == "/size":
             w, h = arg.lower().split("x")
             settings.width, settings.height = int(w), int(h)
@@ -224,7 +228,7 @@ def _handle_command(line: str, settings: _Settings) -> None:
         return
     console.print(
         f"[dim]steps={settings.steps} size={settings.width}×{settings.height} "
-        f"seed={settings.seed} neg={settings.negative_prompt!r}[/dim]"
+        f"seed={settings.seed} cfg={settings.guidance_scale} neg={settings.negative_prompt!r}[/dim]"
     )
 
 
@@ -262,5 +266,5 @@ def _quiet_libraries() -> None:
 def _print_help() -> None:
     console.print(
         "[dim]Type a prompt to generate. Commands: /steps N · /size WxH · "
-        "/seed N|random · /neg <text> · /help · /exit[/dim]"
+        "/seed N|random · /neg <text> · /cfg N · /help · /exit[/dim]"
     )

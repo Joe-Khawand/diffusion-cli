@@ -15,24 +15,52 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-class PipelineKind(StrEnum):
-    """Diffusion pipeline family detected from a model's metadata."""
+class Task(StrEnum):
+    """A generation task, selecting which Auto pipeline class to load."""
 
-    SD15 = "sd1.5"
-    SDXL = "sdxl"
-    SD3 = "sd3"
-    FLUX = "flux"
-    UNKNOWN = "unknown"
+    TEXT2IMG = "text2img"
+    IMG2IMG = "img2img"
+    INPAINT = "inpaint"
 
-    @property
-    def is_supported(self) -> bool:
-        """Phase 1 supports all detected families (FLUX/SD3 best-effort)."""
-        return self is not PipelineKind.UNKNOWN
 
-    @property
-    def is_memory_heavy(self) -> bool:
-        """FLUX/SD3 are large; default to CPU offload on consumer memory."""
-        return self in (PipelineKind.FLUX, PipelineKind.SD3)
+@dataclass(frozen=True)
+class PreviewSpec:
+    """Linear latent→RGB projection for fast live previews.
+
+    ``factors`` is a ``channels x 3`` matrix mapping each latent channel to an
+    (R, G, B) contribution; ``bias`` is added afterwards. Values are calibrated
+    against the model's *working* latent space (the same approximation ComfyUI
+    uses), so previews are cheap but approximate.
+    """
+
+    factors: list[list[float]]
+    bias: list[float]
+    channels: int
+
+
+@dataclass(frozen=True)
+class ModelFamily:
+    """A diffusion model architecture and the knobs the runner needs for it.
+
+    ``id`` is a stable slug (e.g. ``"sdxl"``) written to image sidecars and shown
+    in listings; keep it stable across releases. ``class_names`` are the diffusers
+    pipeline ``_class_name`` values (across text2img/img2img/inpaint/controlnet
+    variants) that map to this family.
+    """
+
+    id: str
+    label: str
+    class_names: tuple[str, ...] = ()
+    memory_heavy: bool = False
+    latent_channels: int = 4
+    supports_negative_prompt: bool = True
+    cuda_dtype: str = "float16"  # "float16" | "bfloat16"
+    preview: PreviewSpec | None = None
+    example_repos: tuple[str, ...] = ()
+    supported: bool = True
+
+    def __str__(self) -> str:  # so f-strings / sidecars render the slug
+        return self.id
 
 
 @dataclass(frozen=True)
@@ -52,7 +80,7 @@ class ModelEntry:
     """A diffusion model present in the local HuggingFace cache."""
 
     repo_id: str
-    kind: PipelineKind
+    family: ModelFamily
     size_on_disk: int
     size_on_disk_str: str
     last_modified: float | None

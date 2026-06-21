@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from diffusion.core import hardware
-from diffusion.core.models import PipelineKind
+from diffusion.core import hardware, registry
 from diffusion.utils.errors import DiffusionError
+
+_SDXL = registry.by_class_name("StableDiffusionXLPipeline")
+_FLUX = registry.by_class_name("FluxPipeline")
+_SD3 = registry.by_class_name("StableDiffusion3Pipeline")
 
 
 @pytest.mark.parametrize(
@@ -29,27 +32,27 @@ def test_detect_device_bad_override() -> None:
 
 
 @pytest.mark.parametrize(
-    ("device", "kind", "expected"),
+    ("device", "family", "expected"),
     [
-        ("cpu", PipelineKind.SDXL, "float32"),
-        ("mps", PipelineKind.SDXL, "float16"),
-        ("mps", PipelineKind.FLUX, "float16"),
-        ("cuda", PipelineKind.SDXL, "float16"),
-        ("cuda", PipelineKind.FLUX, "bfloat16"),
-        ("cuda", PipelineKind.SD3, "bfloat16"),
+        ("cpu", _SDXL, "float32"),
+        ("mps", _SDXL, "float16"),
+        ("mps", _FLUX, "float16"),
+        ("cuda", _SDXL, "float16"),
+        ("cuda", _FLUX, "bfloat16"),
+        ("cuda", _SD3, "bfloat16"),
     ],
 )
-def test_select_dtype(device, kind, expected) -> None:
-    assert hardware.select_dtype(device, kind) == expected
+def test_select_dtype(device, family, expected) -> None:
+    assert hardware.select_dtype(device, family) == expected
 
 
 def test_select_dtype_override() -> None:
-    assert hardware.select_dtype("mps", PipelineKind.SDXL, "bfloat16") == "bfloat16"
+    assert hardware.select_dtype("mps", _SDXL, "bfloat16") == "bfloat16"
 
 
 def test_select_dtype_bad_override() -> None:
     with pytest.raises(DiffusionError):
-        hardware.select_dtype("mps", PipelineKind.SDXL, "int4")
+        hardware.select_dtype("mps", _SDXL, "int4")
 
 
 def test_enable_mps_fallback(monkeypatch) -> None:

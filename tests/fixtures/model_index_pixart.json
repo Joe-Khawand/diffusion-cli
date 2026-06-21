@@ -1,0 +1,9 @@
+{
+  "_class_name": "PixArtSigmaPipeline",
+  "_diffusers_version": "0.31.0",
+  "scheduler": ["diffusers", "DPMSolverMultistepScheduler"],
+  "text_encoder": ["transformers", "T5EncoderModel"],
+  "tokenizer": ["transformers", "T5Tokenizer"],
+  "transformer": ["diffusers", "PixArtTransformer2DModel"],
+  "vae": ["diffusers", "AutoencoderKL"]
+}
