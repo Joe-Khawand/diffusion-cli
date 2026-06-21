@@ -1,4 +1,4 @@
-"""Shared Rich presentation for the CLI.
+"""Shared Rich presentation for the CLI — a warm "sunset" glow-up.
 
 Import-light: only ``rich`` + stdlib at module load. Heavy bits (torch/PIL via the
 ``generate`` module, and the Kitty renderer) are imported lazily inside
@@ -10,7 +10,7 @@ Presentation rules around the Kitty graphics protocol:
   pins a fixed screen region with raw escape sequences. Rich ``Live``/``Progress``/
   ``status`` manage their own cursor region and MUST NOT overlap it. So when previewing
   an image we enhance ONLY the status string passed to ``KittyRenderer.show(status=...)``
-  via :func:`status_line` (raw ANSI is fine there).
+  via :func:`status_line` (raw 24-bit ANSI is fine there).
 - Rich :func:`make_progress` is used ONLY on the no-Kitty fallback path; :func:`loading_status`
   only during model load, when no image is active.
 """
@@ -20,6 +20,8 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Protocol
 
+from rich.box import ROUNDED
+from rich.console import Group
 from rich.panel import Panel
 from rich.progress import (
     BarColumn,
@@ -30,6 +32,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 from rich.table import Table
+from rich.text import Text
 
 from diffusion.utils.console import console
 
@@ -47,24 +50,83 @@ if TYPE_CHECKING:
         seed: int | None
         negative_prompt: str | None
 
-# Spinner frames for the hand-written (non-Rich) Kitty status line.
-_SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
-# Raw ANSI color codes for the Kitty status string (Rich must not touch this region).
-_C_CYAN = "\x1b[36m"
-_C_GREEN = "\x1b[32m"
-_C_DIM = "\x1b[2m"
-_C_BOLD = "\x1b[1m"
-_C_RESET = "\x1b[0m"
+# --- Warm "sunset" palette -------------------------------------------------
+# Gradient stops, gold → coral → rose → plum. Used both for Rich styling and for
+# the hand-written 24-bit ANSI status line in the Kitty region.
+_SUNSET: tuple[tuple[int, int, int], ...] = (
+    (255, 205, 112),  # gold
+    (255, 138, 76),   # coral
+    (255, 94, 118),   # rose
+    (199, 77, 148),   # plum
+)
+_GOLD = "#ffcd70"
+_CORAL = "#ff8a4c"
+_ROSE = "#ff5e76"
+_PLUM = "#c74d94"
+
+# Block glyphs for progress bars.
+_FILL = "▰"
+_EMPTY = "▱"
+
+# Big ASCII logo (a figlet-style "DIFFUSION").
+_LOGO = (
+    r" ___  _  ___ ___ _   _ ___ ___ ___  _  _ ",
+    r"|   \| || __| __| | | / __|_ _/ _ \| \| |",
+    r"| |) | || _|| _|| |_| \__ \| | (_) | .` |",
+    r"|___/|_||_| |_|  \___/|___/___\___/|_|\_|",
+)
 
 
-def model_ready_panel(repo_id: str, kind: object, device: str, dtype: str) -> Panel:
-    """Build a panel announcing that a model is loaded and ready.
+# --- Color helpers ---------------------------------------------------------
+def _lerp(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> tuple[int, int, int]:
+    return tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3))  # type: ignore[return-value]
+
+
+def _gradient(n: int) -> list[tuple[int, int, int]]:
+    """Return ``n`` RGB colors interpolated across the sunset stops."""
+    if n <= 0:
+        return []
+    if n == 1:
+        return [_SUNSET[0]]
+    segs = len(_SUNSET) - 1
+    out: list[tuple[int, int, int]] = []
+    for i in range(n):
+        pos = i / (n - 1) * segs
+        k = min(int(pos), segs - 1)
+        out.append(_lerp(_SUNSET[k], _SUNSET[k + 1], pos - k))
+    return out
+
+
+def _hex(c: tuple[int, int, int]) -> str:
+    return f"#{c[0]:02x}{c[1]:02x}{c[2]:02x}"
+
+
+def _ansi(c: tuple[int, int, int]) -> str:
+    return f"\x1b[38;2;{c[0]};{c[1]};{c[2]}m"
+
+
+def _gradient_block(lines: tuple[str, ...]) -> Text:
+    """Render multi-line text with a horizontal sunset gradient (stable per column)."""
+    width = max(len(line) for line in lines)
+    grad = _gradient(width)
+    text = Text()
+    for li, line in enumerate(lines):
+        for col, ch in enumerate(line):
+            text.append(ch, style=_hex(grad[col]))
+        if li < len(lines) - 1:
+            text.append("\n")
+    return text
+
+
+# --- Panels & tables -------------------------------------------------------
+def model_ready_panel(repo_id: str, kind: object, device: str, dtype: str) -> Group:
+    """Build the startup banner: gradient logo + a "ready" line.
 
     Parameters
     ----------
     repo_id : str
-        HuggingFace repository id of the loaded model.
+        HuggingFace repository id of the loaded model (shown as the panel subtitle).
     kind : object
         The detected :class:`~diffusion.core.models.PipelineKind` (rendered via ``str``).
     device : str
@@ -74,15 +136,27 @@ def model_ready_panel(repo_id: str, kind: object, device: str, dtype: str) -> Pa
 
     Returns
     -------
-    rich.panel.Panel
-        A rounded panel summarizing the ready model.
+    rich.console.Group
+        The logo panel followed by a colorized ready line.
     """
-    body = (
-        f"[bold]{repo_id}[/bold]  [cyan]{kind}[/cyan]\n"
-        f"[dim]device[/dim] [magenta]{device}[/magenta]   "
-        f"[dim]dtype[/dim] [magenta]{dtype}[/magenta]"
+    logo = Panel(
+        _gradient_block(_LOGO),
+        box=ROUNDED,
+        border_style=_CORAL,
+        padding=(0, 2),
+        expand=False,
     )
-    return Panel(body, title="[green]✓ ready[/green]", border_style="green", expand=False)
+    repo = Text("   ")
+    repo.append(repo_id, style="dim")
+    ready = Text("   ")
+    ready.append(str(kind), style=f"bold {_GOLD}")
+    ready.append("  ·  ", style="dim")
+    ready.append(device, style=_CORAL)
+    ready.append("  ·  ", style="dim")
+    ready.append(dtype, style=_ROSE)
+    ready.append("      ")
+    ready.append("ready to dream ✦", style=f"italic {_PLUM}")
+    return Group(logo, repo, ready)
 
 
 def settings_table(settings: _SettingsLike) -> Table:
@@ -90,7 +164,7 @@ def settings_table(settings: _SettingsLike) -> Table:
 
     Parameters
     ----------
-    settings : object
+    settings : _SettingsLike
         Any object exposing ``steps``, ``width``, ``height``, ``seed`` and
         ``negative_prompt`` attributes (e.g. the chat ``_Settings`` dataclass).
 
@@ -101,13 +175,13 @@ def settings_table(settings: _SettingsLike) -> Table:
     """
     table = Table(show_header=False, box=None, pad_edge=False, padding=(0, 2, 0, 0))
     table.add_column(style="dim")
-    table.add_column(style="bold")
+    table.add_column(style=f"bold {_GOLD}")
     seed = "random" if settings.seed is None else str(settings.seed)
     neg = settings.negative_prompt if settings.negative_prompt else "—"
-    table.add_row("steps", str(settings.steps))
-    table.add_row("size", f"{settings.width}×{settings.height}")
-    table.add_row("seed", seed)
-    table.add_row("negative", neg)
+    table.add_row("✦ steps", str(settings.steps))
+    table.add_row("✦ size", f"{settings.width}×{settings.height}")
+    table.add_row("✦ seed", seed)
+    table.add_row("✦ negative", neg)
     return table
 
 
@@ -120,7 +194,7 @@ def help_panel() -> Panel:
         A panel containing the command reference.
     """
     table = Table(show_header=False, box=None, pad_edge=False, padding=(0, 2, 0, 0))
-    table.add_column(style="bold cyan")
+    table.add_column(style=f"bold {_CORAL}")
     table.add_column(style="dim")
     table.add_row("/steps N", "number of denoising steps")
     table.add_row("/size WxH", "image dimensions in pixels")
@@ -130,15 +204,16 @@ def help_panel() -> Panel:
     table.add_row("/exit", "quit")
     return Panel(
         table,
-        title="commands",
+        title=f"[{_GOLD}]✦ commands[/]",
         subtitle="[dim]type a prompt to generate[/dim]",
-        border_style="cyan",
+        border_style=_PLUM,
+        box=ROUNDED,
         expand=False,
     )
 
 
-def result_panel(path: Path, seed: int | None, steps: int, size: str, elapsed: float) -> Panel:
-    """Build a panel summarizing a finished generation.
+def result_panel(path: Path, seed: int | None, steps: int, size: str, elapsed: float) -> Text:
+    """Build a one-line "saved" summary for a finished generation.
 
     Parameters
     ----------
@@ -155,20 +230,23 @@ def result_panel(path: Path, seed: int | None, steps: int, size: str, elapsed: f
 
     Returns
     -------
-    rich.panel.Panel
-        A panel summarizing the saved result.
+    rich.text.Text
+        A colorized, single-line summary of the saved result.
     """
     seed_str = "random" if seed is None else str(seed)
-    body = (
-        f"[bold]{path}[/bold]\n"
-        f"[dim]seed[/dim] {seed_str}   [dim]steps[/dim] {steps}   "
-        f"[dim]size[/dim] {size}   [dim]time[/dim] {elapsed:.1f}s"
+    line = Text("\n")
+    line.append("✦ ", style=_GOLD)
+    line.append("saved  ", style=f"bold {_CORAL}")
+    line.append(str(path), style=_ROSE)
+    line.append(
+        f"   ·  {size} · {steps} steps · seed {seed_str} · {elapsed:.1f}s",
+        style="dim",
     )
-    return Panel(body, title="[green]✓ saved[/green]", border_style="green", expand=False)
+    return line
 
 
 def status_line(step: int, total: int, *, elapsed: float, done: bool = False) -> str:
-    """Build a colorized ANSI status string for the Kitty preview region.
+    """Build a colorized 24-bit ANSI status string for the Kitty preview region.
 
     This is hand-written ANSI (NOT a Rich ``Live``/``Progress``) because it is drawn
     inside the region pinned by :class:`~diffusion.utils.terminal_image.KittyRenderer`,
@@ -183,30 +261,35 @@ def status_line(step: int, total: int, *, elapsed: float, done: bool = False) ->
     elapsed : float
         Wall-clock seconds since generation started.
     done : bool, default False
-        If True, render the completed state (``✓`` and full bar) instead of a spinner.
+        If True, render the completed state (full bar + "done") instead of an ETA.
 
     Returns
     -------
     str
         A colorized status string suitable for ``KittyRenderer.show(status=...)``.
     """
+    reset = "\x1b[0m"
+    dim = "\x1b[2m"
     width = 24
     step = max(0, min(step, total))
     frac = (step / total) if total else 1.0
     filled = round(width * frac)
-    bar = f"{_C_GREEN}{'█' * filled}{_C_DIM}{'░' * (width - filled)}{_C_RESET}"
-    pct = f"{round(frac * 100)}%"
+    grad = _gradient(width)
+
+    bar = "".join(
+        (_ansi(grad[i]) + _FILL) if i < filled else (dim + _EMPTY + reset)
+        for i in range(width)
+    ) + reset
+    pct = f"{_ansi(_SUNSET[0])}\x1b[1m{round(frac * 100):>3}%{reset}"
 
     if done:
-        glyph = f"{_C_GREEN}✓{_C_RESET}"
-        tail = f"{_C_DIM}{elapsed:.1f}s{_C_RESET}"
+        tail = f"{dim}{elapsed:.1f}s{reset}  {_ansi(_SUNSET[0])}✦ done{reset}"
     else:
-        glyph = f"{_C_CYAN}{_SPINNER[step % len(_SPINNER)]}{_C_RESET}"
         remaining = total - step
         eta = (elapsed / step * remaining) if step else 0.0
-        tail = f"{_C_DIM}{elapsed:.1f}s · eta {eta:.1f}s{_C_RESET}"
+        tail = f"{dim}eta {eta:.0f}s{reset}  {_ansi(_SUNSET[1])}denoising…{reset}"
 
-    return f"  {glyph} {bar} {_C_BOLD}{pct}{_C_RESET} {step}/{total}  {tail}"
+    return f"  {bar}  {pct} {dim}{step}/{total}{reset}  {tail}"
 
 
 def make_progress() -> Progress:
@@ -218,10 +301,10 @@ def make_progress() -> Progress:
         A progress with spinner, bar, step count, and elapsed/remaining columns.
     """
     return Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total}"),
+        SpinnerColumn(style=_CORAL),
+        TextColumn(f"[{_CORAL}]{{task.description}}"),
+        BarColumn(complete_style=_CORAL, finished_style=_GOLD, pulse_style=_ROSE),
+        TextColumn("[dim]{task.completed}/{task.total}"),
         TimeElapsedColumn(),
         TimeRemainingColumn(),
         console=console,
@@ -242,7 +325,7 @@ def loading_status(message: str):
     rich.status.Status
         A context manager that shows a spinner while loading.
     """
-    return console.status(f"[bold]{message}[/bold]", spinner="dots")
+    return console.status(f"[bold {_GOLD}]{message}[/]", spinner="dots", spinner_style=_CORAL)
 
 
 def run_with_preview(
@@ -330,7 +413,7 @@ def run_with_preview(
 
     # Fallback: no inline image, drive a Rich progress bar from the step callback.
     with make_progress() as progress:
-        task = progress.add_task("[cyan]denoising[/cyan]", total=steps)
+        task = progress.add_task("denoising", total=steps)
 
         def on_step(step_index: int, _image: Image) -> None:
             progress.update(task, completed=step_index + 1)

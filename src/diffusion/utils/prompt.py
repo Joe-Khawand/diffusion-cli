@@ -64,7 +64,7 @@ def build_session() -> PromptSession:
     from prompt_toolkit.styles import Style
 
     HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    style = Style.from_dict({"prompt": "bold ansicyan"})
+    style = Style.from_dict({"prompt": "bold #ff8a4c"})
     return PromptSession(
         history=FileHistory(str(HISTORY_PATH)),
         completer=_slash_completer(),
