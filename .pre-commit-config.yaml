@@ -1,0 +1,58 @@
+# Pre-commit hooks for diffusion-cli.
+#   Install:  uv run pre-commit install --install-hooks && uv run pre-commit install --hook-type pre-push
+#   Run all:  uv run pre-commit run --all-files
+default_language_version:
+  python: python3.13
+
+# Generated images are gitignored; nothing else to skip globally.
+exclude: '^(uv\.lock)$'
+
+repos:
+  # --- General hygiene -----------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: debug-statements
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # --- Ruff: lint (with autofix) + format ----------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.18
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  # --- Keep uv.lock in sync with pyproject.toml ----------------------------
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.11.23
+    hooks:
+      - id: uv-lock
+
+  # --- Type checking & tests (run in the project venv via uv) --------------
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: uv run mypy src
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: pytest
+        name: pytest (fast suite)
+        entry: uv run pytest -q -m "not integration"
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-push]
