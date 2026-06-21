@@ -373,6 +373,7 @@ def run_with_preview(
 
         palette = None if os.environ.get("DIFFUSION_NO_BORDER") == "1" else border_palette()
         renderer = KittyRenderer(rows=rows, gap=1, border_palette=palette)
+        renderer.start()  # steady-rate border animation, independent of denoising steps
 
         def on_preview(step_index: int, image: Image) -> None:
             elapsed = time.perf_counter() - start

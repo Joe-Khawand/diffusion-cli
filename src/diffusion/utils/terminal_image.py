@@ -28,6 +28,7 @@ import base64
 import itertools
 import os
 import sys
+import threading
 from io import BytesIO
 from typing import TYPE_CHECKING
 
@@ -101,7 +102,13 @@ def _march(text: str, palette: list[str], offset: int) -> str:
 class KittyRenderer:
     """Pins an image (plus a status line above it) to a fixed region.
 
-    Call :meth:`show` per frame and :meth:`finish` when done.
+    Call :meth:`show` per frame and :meth:`finish` when done. When a ``border_palette``
+    is supplied, call :meth:`start` to spin up a background thread that marches the
+    border gradient at a steady frame rate (so the animation flows smoothly regardless
+    of how slow/uneven the denoising steps are); :meth:`finish` stops it.
+
+    All stdout writes are guarded by a lock so the animation thread and the per-step
+    image redraws never interleave their escape sequences.
 
     Parameters
     ----------
@@ -111,18 +118,31 @@ class KittyRenderer:
         Blank lines between the status line and the image (or its border).
     border_palette : list of str, optional
         ANSI color escape codes. When given, an animated box is drawn around the
-        image, its colors marching one step per frame. ``None`` disables the border.
+        image. ``None`` disables the border (and the animation thread).
+    fps : int, default 15
+        Border animation frame rate when a ``border_palette`` is set.
     """
 
     def __init__(
-        self, rows: int = 20, *, gap: int = 1, border_palette: list[str] | None = None
+        self,
+        rows: int = 20,
+        *,
+        gap: int = 1,
+        border_palette: list[str] | None = None,
+        fps: int = 15,
     ) -> None:
         self.rows = rows
         self.gap = gap
         self.border_palette = border_palette
         self.image_id = next(_ID_COUNTER)
         self._started = False
-        self._frame = 0
+        self._offset = 0  # advanced by the animation thread; the march position
+        self._cols: int | None = None  # display width in cells, known after first show
+        self._img_rows = rows
+        self._fps = fps
+        self._lock = threading.RLock()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
 
     def _region_lines(self) -> int:
         base = 1 + self.gap + self.rows
@@ -148,6 +168,41 @@ class KittyRenderer:
             seq += f"\x1b[{down}B"
         return seq + f"\x1b[{col}G"
 
+    def _border_parts(self, offset: int) -> list[str]:
+        """Escape sequences drawing the box edges (image untouched), marched by ``offset``."""
+        pal = self.border_palette
+        cols = self._cols
+        if not pal or cols is None:
+            return []
+        rows = self._img_rows
+        top_row = 1 + self.gap
+        parts = [
+            self._at(top_row, 1) + _march("┌" + "─" * cols + "┐", pal, offset),
+            self._at(top_row + rows + 1, 1) + _march("└" + "─" * cols + "┘", pal, offset),
+        ]
+        for i in range(rows):
+            edge = pal[(offset + i + 1) % len(pal)] + "│" + _RESET
+            parts.append(self._at(top_row + 1 + i, 1) + edge)
+            parts.append(self._at(top_row + 1 + i, cols + 2) + edge)
+        return parts
+
+    def start(self) -> None:
+        """Start the background border-animation thread (no-op without a border)."""
+        if self.border_palette and self._thread is None:
+            self._thread = threading.Thread(target=self._animate, daemon=True)
+            self._thread.start()
+
+    def _animate(self) -> None:
+        period = 1.0 / self._fps
+        # wait() returns True once stop is set; until then it sleeps `period` seconds.
+        while not self._stop.wait(period):
+            with self._lock:
+                if not self._started or self._cols is None:
+                    continue
+                self._offset += 1
+                sys.stdout.write("".join(self._border_parts(self._offset)))
+                sys.stdout.flush()
+
     def show(self, image: Image, status: str = "") -> None:
         """Render ``image`` in place, replacing the previous frame.
 
@@ -158,42 +213,37 @@ class KittyRenderer:
         status : str, default ""
             Optional status text drawn above the image.
         """
-        if not self._started:
-            self._begin()
-        rows, cols = _display_cells(image, self.rows)
-        # Delete ONLY this generation's previous frame. d=i scopes the delete to image
-        # id `i`; without it, d defaults to 'a' = delete ALL visible images.
-        delete = f"\x1b_Ga=d,d=i,i={self.image_id},q=2\x1b\\"
+        with self._lock:
+            if not self._started:
+                self._begin()
+            rows, cols = _display_cells(image, self.rows)
+            self._img_rows = rows
+            self._cols = cols
+            # Delete ONLY this generation's previous frame. d=i scopes the delete to image
+            # id `i`; without it, d defaults to 'a' = delete ALL visible images.
+            delete = f"\x1b_Ga=d,d=i,i={self.image_id},q=2\x1b\\"
+            transmit = _kitty_transmit(image, rows, cols, image_id=self.image_id, no_move=True)
 
-        parts = ["\x1b8", "\x1b[2K\r", status]  # restore anchor, clear status line, repaint
+            parts = ["\x1b8", "\x1b[2K\r", status]  # restore anchor, clear status, repaint
+            if self.border_palette:
+                parts += self._border_parts(self._offset)
+                # Image, inset one cell inside the frame.
+                parts.append(self._at(1 + self.gap + 1, 2) + delete + transmit)
+            else:
+                parts.append(self._at(1 + self.gap, 1) + delete + transmit)
 
-        if self.border_palette:
-            pal = self.border_palette
-            off = self._frame * 2  # *2 so the march is visible even with few steps
-            top_row = 1 + self.gap
-            # Top and bottom edges.
-            parts.append(self._at(top_row, 1) + _march("┌" + "─" * cols + "┐", pal, off))
-            parts.append(self._at(top_row + rows + 1, 1) + _march("└" + "─" * cols + "┘", pal, off))
-            # Left and right edges, one cell per image row.
-            for i in range(rows):
-                edge = pal[(off + i) % len(pal)] + "│" + _RESET
-                parts.append(self._at(top_row + 1 + i, 1) + edge)
-                parts.append(self._at(top_row + 1 + i, cols + 2) + edge)
-            # Image, inset one cell inside the frame.
-            parts.append(self._at(top_row + 1, 2) + delete)
-            parts.append(_kitty_transmit(image, rows, cols, image_id=self.image_id, no_move=True))
-        else:
-            parts.append(self._at(1 + self.gap, 1) + delete)
-            parts.append(_kitty_transmit(image, rows, cols, image_id=self.image_id, no_move=True))
-
-        self._frame += 1
-        sys.stdout.write("".join(parts))
-        sys.stdout.flush()
+            sys.stdout.write("".join(parts))
+            sys.stdout.flush()
 
     def finish(self) -> None:
-        """Move below the region and restore the cursor."""
-        if self._started:
-            lines = self._region_lines()
-            sys.stdout.write("\x1b8" + f"\x1b[{lines}B" + "\r" + "\x1b[?25h")
-            sys.stdout.flush()
-        self._started = False
+        """Stop the animation thread, move below the region, and restore the cursor."""
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+            self._thread = None
+        with self._lock:
+            if self._started:
+                lines = self._region_lines()
+                sys.stdout.write("\x1b8" + f"\x1b[{lines}B" + "\r" + "\x1b[?25h")
+                sys.stdout.flush()
+            self._started = False

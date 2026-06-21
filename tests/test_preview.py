@@ -123,6 +123,27 @@ def test_kitty_renderer_draws_animated_border(capsys) -> None:
     assert "C=1" in out  # image still transmitted without moving the cursor
 
 
+def test_kitty_renderer_animation_thread_marches_and_stops(capsys) -> None:
+    import time
+
+    from PIL import Image
+
+    from diffusion.utils.terminal_image import KittyRenderer
+
+    pal = ["\x1b[38;2;1;1;1m", "\x1b[38;2;2;2;2m"]
+    r = KittyRenderer(rows=4, gap=1, border_palette=pal, fps=30)
+    img = Image.new("RGB", (16, 16), (0, 0, 0))
+    r.start()
+    r.show(img, status="go")  # sets _cols so the thread can draw
+    time.sleep(0.2)  # ~6 frames at 30fps
+    mid_offset = r._offset
+    r.finish()
+
+    assert mid_offset > 0  # the border marched on its own clock
+    assert r._thread is None  # the thread was joined/stopped
+    assert "\x1b[?25h" in capsys.readouterr().out  # cursor restored on finish
+
+
 def test_each_renderer_uses_a_unique_image_id(capsys) -> None:
     from PIL import Image
 
