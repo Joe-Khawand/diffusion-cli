@@ -180,7 +180,8 @@ def run_inference(
     return pipe(**call_kwargs).images[0]
 
 
-def _load_image(path: Path | None) -> Image | None:
+def load_image(path: Path | None) -> Image | None:
+    """Load an image from ``path`` as RGB, or return None if ``path`` is None."""
     if path is None:
         return None
     from PIL import Image as PILImage
@@ -230,7 +231,7 @@ def generate(
     )
     console.print(
         f"Loaded [bold]{repo_id}[/bold] ([cyan]{family.label}[/cyan]) on "
-        f"[magenta]{plan.device}[/magenta]/{plan.dtype}. Generating [{task}] "
+        f"[magenta]{plan.device}[/magenta]/{plan.dtype}. Generating {task} · "
         f"{width}×{height}, {steps} steps …"
     )
     start = time.perf_counter()
@@ -245,9 +246,9 @@ def generate(
         height=height,
         seed=seed,
         low_mem=low_mem,
-        init_image=_load_image(init_image),
-        mask_image=_load_image(mask_image),
-        control_image=_load_image(control_image),
+        init_image=load_image(init_image),
+        mask_image=load_image(mask_image),
+        control_image=load_image(control_image),
         strength=strength,
         guidance_scale=guidance_scale,
     )

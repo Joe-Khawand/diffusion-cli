@@ -69,24 +69,79 @@ def run_generate(
     guidance_scale : float or None
         Classifier-free guidance scale override.
     """
-    from diffusion.core.generate import generate
+    from diffusion.core import generate as generate_module
+    from diffusion.core.generate import load_image, write_sidecar
+    from diffusion.core.models import Task
+    from diffusion.utils import ui
+    from diffusion.utils.console import console
+    from diffusion.utils.terminal_image import detect_protocol
 
-    generate(
-        repo_id=repo_id,
+    protocol = detect_protocol()
+    if protocol == "none":
+        console.print(
+            "[yellow]No inline-image terminal detected.[/yellow] Previews are disabled; "
+            "the image will still be saved. (Force with DIFFUSION_FORCE_KITTY=1.)"
+        )
+
+    # The task is inferred from the inputs: a mask → inpaint, an init image → img2img.
+    if mask_image is not None:
+        task = Task.INPAINT
+    elif init_image is not None:
+        task = Task.IMG2IMG
+    else:
+        task = Task.TEXT2IMG
+
+    with ui.loading_status(f"Loading {repo_id} …"):
+        pipe, family, plan = generate_module.load_pipeline(
+            repo_id,
+            task=task,
+            controlnet_repo=controlnet,
+            device_override=device,
+            dtype_override=dtype,
+            low_mem=low_mem,
+        )
+    console.print(ui.model_ready_panel(repo_id, family, plan.device, plan.dtype))
+    console.print(f"[dim]Generating {task} · {width}×{height}, {steps} steps …[/dim]")
+
+    image, elapsed = ui.run_with_preview(
+        generate_module,
+        pipe,
+        family,
+        plan,
         prompt=prompt,
         negative_prompt=negative_prompt,
         steps=steps,
         width=width,
         height=height,
-        output=output,
         seed=seed,
-        device_override=device,
-        dtype_override=dtype,
         low_mem=low_mem,
-        init_image=init_image,
-        mask_image=mask_image,
-        control_image=control_image,
-        controlnet_repo=controlnet,
+        protocol=protocol,
+        rows=20,
+        init_image=load_image(init_image),
+        mask_image=load_image(mask_image),
+        control_image=load_image(control_image),
         strength=strength,
         guidance_scale=guidance_scale,
     )
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    image.save(output)
+    write_sidecar(
+        output,
+        repo_id=repo_id,
+        family=family,
+        task=str(task),
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        steps=steps,
+        width=width,
+        height=height,
+        seed=seed,
+        controlnet=controlnet,
+        strength=strength,
+        guidance_scale=guidance_scale,
+        device=plan.device,
+        dtype=plan.dtype,
+        elapsed_s=round(elapsed, 2),
+    )
+    console.print(ui.result_panel(output, seed, steps, f"{width}×{height}", elapsed))
