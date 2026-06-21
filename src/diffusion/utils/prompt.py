@@ -24,18 +24,28 @@ HISTORY_PATH = Path.home() / ".cache" / "diffusion" / "history"
 def _slash_completer() -> Completer:
     """Build a completer over the chat slash commands.
 
+    Completions are offered ONLY while typing a slash command — i.e. when the line
+    begins with ``/`` and no space has been typed yet. Plain prompts get no dropdown.
+
     Returns
     -------
     prompt_toolkit.completion.Completer
-        A completer that suggests :data:`SLASH_COMMANDS` for the current word.
+        A completer that suggests :data:`SLASH_COMMANDS`.
     """
-    import re
+    from prompt_toolkit.completion import Completer, Completion
 
-    from prompt_toolkit.completion import WordCompleter
+    class _SlashCompleter(Completer):
+        def get_completions(self, document, complete_event):
+            text = document.text_before_cursor
+            # Only a bare "/word" with no space is a command being typed; everything
+            # else is a normal prompt and must not trigger the dropdown.
+            if not text.startswith("/") or " " in text:
+                return
+            for cmd in SLASH_COMMANDS:
+                if cmd.startswith(text):
+                    yield Completion(cmd, start_position=-len(text))
 
-    # The default word splitter treats "/" as a boundary, so "/s" would match on the
-    # word "s" and find nothing. This pattern keeps the leading slash in the word.
-    return WordCompleter(list(SLASH_COMMANDS), pattern=re.compile(r"/\S*"))
+    return _SlashCompleter()
 
 
 def build_session() -> PromptSession:

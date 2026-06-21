@@ -26,6 +26,17 @@ def test_completer_empty_slash_returns_all() -> None:
     assert _completions("/") == set(prompt.SLASH_COMMANDS)
 
 
+def test_completer_ignores_plain_prompt() -> None:
+    # A normal prompt must not trigger the slash-command dropdown.
+    assert _completions("Image of a fox") == set()
+    assert _completions("") == set()
+
+
+def test_completer_stops_after_command_word() -> None:
+    # Once a space is typed, the command is chosen; no more suggestions.
+    assert _completions("/steps ") == set()
+
+
 def test_history_path_under_cache() -> None:
     assert prompt.HISTORY_PATH.name == "history"
     assert prompt.HISTORY_PATH.parent.name == "diffusion"
