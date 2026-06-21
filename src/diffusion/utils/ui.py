@@ -18,7 +18,7 @@ Presentation rules around the Kitty graphics protocol:
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from rich.panel import Panel
 from rich.progress import (
@@ -37,6 +37,15 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from PIL.Image import Image
+
+    class _SettingsLike(Protocol):
+        """Structural type for objects accepted by :func:`settings_table`."""
+
+        steps: int
+        width: int
+        height: int
+        seed: int | None
+        negative_prompt: str | None
 
 # Spinner frames for the hand-written (non-Rich) Kitty status line.
 _SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -76,7 +85,7 @@ def model_ready_panel(repo_id: str, kind: object, device: str, dtype: str) -> Pa
     return Panel(body, title="[green]✓ ready[/green]", border_style="green", expand=False)
 
 
-def settings_table(settings: object) -> Table:
+def settings_table(settings: _SettingsLike) -> Table:
     """Build a compact table of the current generation settings.
 
     Parameters
@@ -323,7 +332,7 @@ def run_with_preview(
     with make_progress() as progress:
         task = progress.add_task("[cyan]denoising[/cyan]", total=steps)
 
-        def on_preview(step_index: int, _image: Image) -> None:
+        def on_step(step_index: int, _image: Image) -> None:
             progress.update(task, completed=step_index + 1)
 
         image = generate_module.run_inference(
@@ -337,7 +346,7 @@ def run_with_preview(
             height=height,
             seed=seed,
             low_mem=low_mem,
-            on_preview=on_preview,
+            on_preview=on_step,
         )
     elapsed = time.perf_counter() - start
     return image, elapsed
