@@ -30,24 +30,29 @@ def load_pipeline(
     repo_id: str, *, device_override: str | None, dtype_override: str | None, low_mem: bool
 ):
     """Resolve, load, and optimize a pipeline. Returns (pipe, kind, plan)."""
-    from diffusers import AutoPipelineForText2Image
+    from diffusion.utils.console import suppress_transformers_docstring_noise
 
-    from diffusion.core import cache, hardware, optimize
-    from diffusion.core.detect import detect_kind
+    # Importing diffusers/transformers model modules triggers @auto_docstring,
+    # which prints cosmetic "[ERROR] ... not documented" lines to stdout.
+    with suppress_transformers_docstring_noise():
+        from diffusers import AutoPipelineForText2Image
 
-    snapshot = cache.resolve_local(repo_id)
-    kind = detect_kind(snapshot)
-    if not kind.is_supported:
-        raise UnsupportedPipelineError(
-            repo_id, "no recognized diffusion pipeline in model_index.json"
+        from diffusion.core import cache, hardware, optimize
+        from diffusion.core.detect import detect_kind
+
+        snapshot = cache.resolve_local(repo_id)
+        kind = detect_kind(snapshot)
+        if not kind.is_supported:
+            raise UnsupportedPipelineError(
+                repo_id, "no recognized diffusion pipeline in model_index.json"
+            )
+
+        plan = hardware.resolve(
+            kind=kind, device_override=device_override, dtype_override=dtype_override
         )
-
-    plan = hardware.resolve(
-        kind=kind, device_override=device_override, dtype_override=dtype_override
-    )
-    pipe = AutoPipelineForText2Image.from_pretrained(
-        snapshot, torch_dtype=hardware.torch_dtype(plan.dtype)
-    )
+        pipe = AutoPipelineForText2Image.from_pretrained(
+            snapshot, torch_dtype=hardware.torch_dtype(plan.dtype)
+        )
     optimize.apply_optimizations(pipe, plan.device, kind, low_mem=low_mem)
     return pipe, kind, plan
 

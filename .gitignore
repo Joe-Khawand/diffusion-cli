@@ -22,5 +22,8 @@ dist/
 outputs/
 !docs/**/*.png
 
+# Claude Code (agent worktrees, local settings)
+.claude/
+
 # OS
 .DS_Store
