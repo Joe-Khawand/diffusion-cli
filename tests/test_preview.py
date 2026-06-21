@@ -84,13 +84,13 @@ def test_kitty_renderer_anchors_and_redraws(capsys) -> None:
 
     from diffusion.utils.terminal_image import KittyRenderer
 
-    r = KittyRenderer(rows=8)
+    r = KittyRenderer(rows=8)  # default gap=1, no border -> reserves 1+1+8 = 10 lines
     img = Image.new("RGB", (16, 16), (0, 0, 0))
 
     r.show(img, status="step 1/8")
     first = capsys.readouterr().out
     assert "\x1b[?25l" in first  # hides cursor on first frame
-    assert "\x1b[9A" in first  # reserves rows+1 lines and moves back up
+    assert "\x1b[10A" in first  # reserves status + gap + rows lines and moves back up
     assert "\x1b7" in first  # saves the anchor
     assert "C=1" in first  # image transmitted without moving the cursor
 
@@ -103,6 +103,24 @@ def test_kitty_renderer_anchors_and_redraws(capsys) -> None:
     r.finish()
     end = capsys.readouterr().out
     assert "\x1b[?25h" in end  # restores the cursor
+
+
+def test_kitty_renderer_draws_animated_border(capsys) -> None:
+    from PIL import Image
+
+    from diffusion.utils.terminal_image import KittyRenderer
+
+    # rows=6, gap=1, border -> region is 1 (status) + 1 (gap) + 6 (image) + 2 (border) = 10.
+    r = KittyRenderer(rows=6, gap=1, border_palette=["\x1b[38;2;1;2;3m", "\x1b[38;2;4;5;6m"])
+    assert r._region_lines() == 10
+    img = Image.new("RGB", (16, 16), (0, 0, 0))
+
+    r.show(img, status="step")
+    out = capsys.readouterr().out
+    assert "\x1b[10A" in out  # reserves the full bordered region
+    assert "┌" in out and "┐" in out and "└" in out and "┘" in out  # corners
+    assert "│" in out  # side edges
+    assert "C=1" in out  # image still transmitted without moving the cursor
 
 
 def test_each_renderer_uses_a_unique_image_id(capsys) -> None:

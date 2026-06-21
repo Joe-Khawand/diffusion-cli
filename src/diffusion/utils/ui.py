@@ -21,7 +21,6 @@ import time
 from typing import TYPE_CHECKING, Protocol
 
 from rich.box import ROUNDED
-from rich.console import Group
 from rich.panel import Panel
 from rich.progress import (
     BarColumn,
@@ -56,9 +55,9 @@ if TYPE_CHECKING:
 # the hand-written 24-bit ANSI status line in the Kitty region.
 _SUNSET: tuple[tuple[int, int, int], ...] = (
     (255, 205, 112),  # gold
-    (255, 138, 76),   # coral
-    (255, 94, 118),   # rose
-    (199, 77, 148),   # plum
+    (255, 138, 76),  # coral
+    (255, 94, 118),  # rose
+    (199, 77, 148),  # plum
 )
 _GOLD = "#ffcd70"
 _CORAL = "#ff8a4c"
@@ -68,14 +67,6 @@ _PLUM = "#c74d94"
 # Block glyphs for progress bars.
 _FILL = "▰"
 _EMPTY = "▱"
-
-# Big ASCII logo (a figlet-style "DIFFUSION").
-_LOGO = (
-    r" ___  _  ___ ___ _   _ ___ ___ ___  _  _ ",
-    r"|   \| || __| __| | | / __|_ _/ _ \| \| |",
-    r"| |) | || _|| _|| |_| \__ \| | (_) | .` |",
-    r"|___/|_||_| |_|  \___/|___/___\___/|_|\_|",
-)
 
 
 # --- Color helpers ---------------------------------------------------------
@@ -98,35 +89,25 @@ def _gradient(n: int) -> list[tuple[int, int, int]]:
     return out
 
 
-def _hex(c: tuple[int, int, int]) -> str:
-    return f"#{c[0]:02x}{c[1]:02x}{c[2]:02x}"
-
-
 def _ansi(c: tuple[int, int, int]) -> str:
     return f"\x1b[38;2;{c[0]};{c[1]};{c[2]}m"
 
 
-def _gradient_block(lines: tuple[str, ...]) -> Text:
-    """Render multi-line text with a horizontal sunset gradient (stable per column)."""
-    width = max(len(line) for line in lines)
-    grad = _gradient(width)
-    text = Text()
-    for li, line in enumerate(lines):
-        for col, ch in enumerate(line):
-            text.append(ch, style=_hex(grad[col]))
-        if li < len(lines) - 1:
-            text.append("\n")
-    return text
+def border_palette() -> list[str]:
+    """Return a looping list of 24-bit ANSI color codes for the animated image border."""
+    grad = _gradient(16)
+    loop = grad + grad[::-1]  # forward + back so the march cycles seamlessly
+    return [_ansi(c) for c in loop]
 
 
 # --- Panels & tables -------------------------------------------------------
-def model_ready_panel(repo_id: str, kind: object, device: str, dtype: str) -> Group:
-    """Build the startup banner: gradient logo + a "ready" line.
+def model_ready_panel(repo_id: str, kind: object, device: str, dtype: str) -> Panel:
+    """Build a compact "ready" banner with the model's kind, device, and dtype.
 
     Parameters
     ----------
     repo_id : str
-        HuggingFace repository id of the loaded model (shown as the panel subtitle).
+        HuggingFace repository id of the loaded model.
     kind : object
         The detected :class:`~diffusion.core.models.PipelineKind` (rendered via ``str``).
     device : str
@@ -136,27 +117,26 @@ def model_ready_panel(repo_id: str, kind: object, device: str, dtype: str) -> Gr
 
     Returns
     -------
-    rich.console.Group
-        The logo panel followed by a colorized ready line.
+    rich.panel.Panel
+        A small rounded panel summarizing the ready model.
     """
-    logo = Panel(
-        _gradient_block(_LOGO),
-        box=ROUNDED,
+    info = Text()
+    info.append(str(kind), style=f"bold {_GOLD}")
+    info.append("  ·  ", style="dim")
+    info.append(device, style=_CORAL)
+    info.append("  ·  ", style="dim")
+    info.append(dtype, style=_ROSE)
+    info.append("\n")
+    info.append(repo_id, style="dim")
+    return Panel(
+        info,
+        title=f"[{_GOLD}]✦ ready[/]",
+        title_align="left",
         border_style=_CORAL,
+        box=ROUNDED,
         padding=(0, 2),
         expand=False,
     )
-    repo = Text("   ")
-    repo.append(repo_id, style="dim")
-    ready = Text("   ")
-    ready.append(str(kind), style=f"bold {_GOLD}")
-    ready.append("  ·  ", style="dim")
-    ready.append(device, style=_CORAL)
-    ready.append("  ·  ", style="dim")
-    ready.append(dtype, style=_ROSE)
-    ready.append("      ")
-    ready.append("ready to dream ✦", style=f"italic {_PLUM}")
-    return Group(logo, repo, ready)
 
 
 def settings_table(settings: _SettingsLike) -> Table:
@@ -276,10 +256,12 @@ def status_line(step: int, total: int, *, elapsed: float, done: bool = False) ->
     filled = round(width * frac)
     grad = _gradient(width)
 
-    bar = "".join(
-        (_ansi(grad[i]) + _FILL) if i < filled else (dim + _EMPTY + reset)
-        for i in range(width)
-    ) + reset
+    bar = (
+        "".join(
+            (_ansi(grad[i]) + _FILL) if i < filled else (dim + _EMPTY + reset) for i in range(width)
+        )
+        + reset
+    )
     pct = f"{_ansi(_SUNSET[0])}\x1b[1m{round(frac * 100):>3}%{reset}"
 
     if done:
@@ -385,9 +367,12 @@ def run_with_preview(
     start = time.perf_counter()
 
     if protocol == "kitty":
+        import os
+
         from diffusion.utils.terminal_image import KittyRenderer
 
-        renderer = KittyRenderer(rows=rows)
+        palette = None if os.environ.get("DIFFUSION_NO_BORDER") == "1" else border_palette()
+        renderer = KittyRenderer(rows=rows, gap=1, border_palette=palette)
 
         def on_preview(step_index: int, image: Image) -> None:
             elapsed = time.perf_counter() - start

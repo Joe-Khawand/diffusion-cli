@@ -105,13 +105,13 @@ def run_chat(
         try:
             line = prompt_input.read_prompt(session)
         except (EOFError, KeyboardInterrupt):
-            console.print("\nBye.")
+            _close()
             return
 
         if not line:
             continue
         if line in ("/exit", "/quit", "exit", "quit"):
-            console.print("Bye.")
+            _close()
             return
         if line == "/help":
             console.print(ui.help_panel())
@@ -195,6 +195,11 @@ def _generate_one(
             elapsed,
         )
     )
+
+
+def _close() -> None:
+    """Print a soft farewell and leave the cursor on a clean line."""
+    console.print("[dim]✦ session ended[/dim]")
 
 
 def _handle_command(line: str, settings: _Settings) -> None:
