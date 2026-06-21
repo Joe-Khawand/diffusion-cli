@@ -1,0 +1,49 @@
+[project]
+name = "diffusion-cli"
+version = "0.1.0"
+description = "Unified local diffusion runner for image generation — an ollama-style CLI for HuggingFace diffusion models"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "accelerate>=1.14.0",
+    "diffusers>=0.38.0",
+    "huggingface-hub>=1.20.1",
+    "pillow>=12.2.0",
+    "rich>=15.0.0",
+    "safetensors>=0.8.0",
+    "torch>=2.12.1",
+    "transformers>=5.12.1",
+    "typer>=0.25.1",
+]
+
+[project.scripts]
+diffusion = "diffusion.cli:entrypoint"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/diffusion"]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.1.0",
+    "pytest>=9.1.1",
+    "pytest-mock>=3.15.1",
+    "ruff>=0.15.18",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests that download models or run real inference (deselect with '-m \"not integration\"')",
+]
+
+[tool.ruff]
+src = ["src", "tests"]
+line-length = 100
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+extraPaths = ["src"]

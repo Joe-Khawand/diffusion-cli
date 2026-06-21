@@ -1,0 +1,6 @@
+{
+  "_class_name": "SomeAudioPipeline",
+  "_diffusers_version": "0.31.0",
+  "scheduler": ["diffusers", "DDPMScheduler"],
+  "unet_audio": ["diffusers", "UNet1DModel"]
+}

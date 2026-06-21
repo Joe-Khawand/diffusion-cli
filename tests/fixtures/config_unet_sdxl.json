@@ -1,0 +1,5 @@
+{
+  "_class_name": "UNet2DConditionModel",
+  "cross_attention_dim": 2048,
+  "addition_embed_type": "text_time"
+}

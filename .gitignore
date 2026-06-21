@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# uv
+.venv/
+
+# Test / tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Generated outputs
+*.png
+*.jpg
+*.mp4
+*.png.json
+outputs/
+!docs/**/*.png
+
+# OS
+.DS_Store
