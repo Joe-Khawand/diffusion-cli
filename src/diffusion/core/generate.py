@@ -7,16 +7,19 @@ module stays cheap. Split into :func:`load_pipeline` (do once) and
 
 from __future__ import annotations
 
+import contextlib
 import json
 import time
-from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from diffusion.core.models import DeviceInfo, PipelineKind
 from diffusion.utils.console import console
 from diffusion.utils.errors import UnsupportedPipelineError
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from PIL.Image import Image
 
 # Called with (step_index, preview_image) after each denoising step.
@@ -87,10 +90,8 @@ def run_inference(
         from diffusion.core.preview import latents_to_preview
 
         # Silence the pipeline's own tqdm bar so it doesn't fight the inline render.
-        try:
+        with contextlib.suppress(Exception):
             pipe.set_progress_bar_config(disable=True)
-        except Exception:
-            pass
 
         def _callback(_pipe, step_index, _timestep, callback_kwargs):
             try:
@@ -132,8 +133,16 @@ def generate(
     )
     start = time.perf_counter()
     image = run_inference(
-        pipe, kind, plan, prompt=prompt, negative_prompt=negative_prompt, steps=steps,
-        width=width, height=height, seed=seed, low_mem=low_mem,
+        pipe,
+        kind,
+        plan,
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        steps=steps,
+        width=width,
+        height=height,
+        seed=seed,
+        low_mem=low_mem,
     )
     elapsed = time.perf_counter() - start
 
@@ -141,9 +150,17 @@ def generate(
     image.save(output)
     write_sidecar(
         output,
-        repo_id=repo_id, kind=kind, prompt=prompt, negative_prompt=negative_prompt,
-        steps=steps, width=width, height=height, seed=seed,
-        device=plan.device, dtype=plan.dtype, elapsed_s=round(elapsed, 2),
+        repo_id=repo_id,
+        kind=kind,
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        steps=steps,
+        width=width,
+        height=height,
+        seed=seed,
+        device=plan.device,
+        dtype=plan.dtype,
+        elapsed_s=round(elapsed, 2),
     )
     console.print(f"[green]✓[/green] Saved [bold]{output}[/bold] in {elapsed:.1f}s")
     return output

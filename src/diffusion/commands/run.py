@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def run_generate(
@@ -19,6 +22,31 @@ def run_generate(
     dtype: str | None,
     low_mem: bool,
 ) -> None:
+    """Generate a single image from ``prompt`` and write it to ``output``.
+
+    Parameters
+    ----------
+    repo_id : str
+        HuggingFace repository id of the model to run.
+    prompt : str
+        Text prompt describing the desired image.
+    negative_prompt : str or None
+        Text describing what to avoid, or None.
+    steps : int
+        Number of denoising steps.
+    width, height : int
+        Output image dimensions in pixels.
+    output : Path
+        Destination path for the saved image.
+    seed : int or None
+        Random seed for reproducibility, or None for a random seed.
+    device : str or None
+        Device override (e.g. ``"cuda"``, ``"mps"``, ``"cpu"``), or None to autodetect.
+    dtype : str or None
+        Torch dtype override, or None to autodetect.
+    low_mem : bool
+        If True, enable memory-saving optimizations (e.g. CPU offload).
+    """
     from diffusion.core.generate import generate
 
     generate(

@@ -41,9 +41,7 @@ def test_info_shows_metadata(mocker) -> None:
 
 
 def test_info_missing_exits_nonzero(mocker) -> None:
-    mocker.patch(
-        "diffusion.core.cache.get_info", side_effect=ModelNotCachedError("org/missing")
-    )
+    mocker.patch("diffusion.core.cache.get_info", side_effect=ModelNotCachedError("org/missing"))
     # entrypoint() maps DiffusionError to a clean exit; invoke it via the wrapper.
     from diffusion.cli import entrypoint
 

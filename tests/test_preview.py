@@ -119,4 +119,6 @@ def test_each_renderer_uses_a_unique_image_id(capsys) -> None:
     out = capsys.readouterr().out
     # The new renderer only ever deletes/draws its own id, never r1's.
     assert f"i={r2.image_id}" in out
-    assert f"a=d,i={r1.image_id}" not in out
+    # Delete must be scoped with d=i (else d defaults to 'a' = delete ALL images).
+    assert f"a=d,d=i,i={r2.image_id}" in out
+    assert f"i={r1.image_id}" not in out

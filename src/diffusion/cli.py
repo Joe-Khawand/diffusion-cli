@@ -32,8 +32,9 @@ def _version_callback(value: bool) -> None:
 def main(
     _version: Annotated[
         bool,
-        typer.Option("--version", callback=_version_callback, is_eager=True,
-                     help="Show version and exit."),
+        typer.Option(
+            "--version", callback=_version_callback, is_eager=True, help="Show version and exit."
+        ),
     ] = False,
 ) -> None:
     """Unified local diffusion runner."""
@@ -41,7 +42,9 @@ def main(
 
 @app.command()
 def pull(
-    repo_id: Annotated[str, typer.Argument(help="HuggingFace repo id, e.g. 'stabilityai/sdxl-turbo'.")],
+    repo_id: Annotated[
+        str, typer.Argument(help="HuggingFace repo id, e.g. 'stabilityai/sdxl-turbo'.")
+    ],
 ) -> None:
     """Download a diffusion model from HuggingFace into the local cache."""
     from diffusion.commands.pull import run_pull
@@ -92,10 +95,12 @@ def run(
     steps: Annotated[int, typer.Option("--steps", help="Number of inference steps.")] = 25,
     width: Annotated[int, typer.Option("--width", help="Image width in pixels.")] = 512,
     height: Annotated[int, typer.Option("--height", help="Image height in pixels.")] = 512,
-    output: Annotated[
-        Path, typer.Option("--output", "-o", help="Output image path.")
-    ] = Path("output.png"),
-    seed: Annotated[int | None, typer.Option("--seed", help="Random seed for reproducibility.")] = None,
+    output: Annotated[Path, typer.Option("--output", "-o", help="Output image path.")] = Path(
+        "output.png"
+    ),
+    seed: Annotated[
+        int | None, typer.Option("--seed", help="Random seed for reproducibility.")
+    ] = None,
     device: Annotated[
         str | None, typer.Option("--device", help="Force device: mps, cuda, or cpu.")
     ] = None,
@@ -130,7 +135,9 @@ def chat(
     steps: Annotated[int, typer.Option("--steps", help="Inference steps per image.")] = 25,
     width: Annotated[int, typer.Option("--width", help="Image width in pixels.")] = 512,
     height: Annotated[int, typer.Option("--height", help="Image height in pixels.")] = 512,
-    seed: Annotated[int | None, typer.Option("--seed", help="Fixed seed (default: random).")] = None,
+    seed: Annotated[
+        int | None, typer.Option("--seed", help="Fixed seed (default: random).")
+    ] = None,
     negative_prompt: Annotated[
         str | None, typer.Option("--negative-prompt", help="Default negative prompt.")
     ] = None,
@@ -139,9 +146,7 @@ def chat(
         str | None, typer.Option("--dtype", help="Force float16, bfloat16, float32.")
     ] = None,
     low_mem: Annotated[bool, typer.Option("--low-mem", help="Slicing + CPU offload.")] = False,
-    rows: Annotated[
-        int, typer.Option("--rows", help="Preview height in terminal rows.")
-    ] = 20,
+    rows: Annotated[int, typer.Option("--rows", help="Preview height in terminal rows.")] = 20,
     outdir: Annotated[
         Path, typer.Option("--outdir", help="Where to save generated images.")
     ] = Path("outputs"),
@@ -150,9 +155,17 @@ def chat(
     from diffusion.commands.chat import run_chat
 
     run_chat(
-        repo_id, steps=steps, width=width, height=height, seed=seed,
-        negative_prompt=negative_prompt, device=device, dtype=dtype, low_mem=low_mem,
-        rows=rows, outdir=outdir,
+        repo_id,
+        steps=steps,
+        width=width,
+        height=height,
+        seed=seed,
+        negative_prompt=negative_prompt,
+        device=device,
+        dtype=dtype,
+        low_mem=low_mem,
+        rows=rows,
+        outdir=outdir,
     )
 
 

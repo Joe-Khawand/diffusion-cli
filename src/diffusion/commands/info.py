@@ -6,6 +6,13 @@ from diffusion.utils.console import console
 
 
 def run_info(repo_id: str) -> None:
+    """Print a table of cached metadata for ``repo_id``.
+
+    Parameters
+    ----------
+    repo_id : str
+        HuggingFace repository id of a cached model.
+    """
     from rich.table import Table
 
     from diffusion.core import cache

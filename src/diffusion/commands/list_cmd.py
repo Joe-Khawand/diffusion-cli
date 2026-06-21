@@ -6,6 +6,13 @@ from diffusion.utils.console import console
 
 
 def run_list(*, all_models: bool = False) -> None:
+    """Print a table of cached models.
+
+    Parameters
+    ----------
+    all_models : bool, default False
+        If True, include models that are not recognized diffusion pipelines.
+    """
     from rich.table import Table
 
     from diffusion.core import cache

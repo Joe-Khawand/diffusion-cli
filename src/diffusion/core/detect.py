@@ -13,9 +13,12 @@ Signal priority:
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from diffusion.core.models import PipelineKind
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # Concrete diffusers pipeline class names -> family.
 _CLASS_NAME_MAP: dict[str, PipelineKind] = {

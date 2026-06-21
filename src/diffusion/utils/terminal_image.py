@@ -103,6 +103,15 @@ class KittyRenderer:
         self._started = True
 
     def show(self, image: Image, status: str = "") -> None:
+        """Render ``image`` in place, replacing the previous frame.
+
+        Parameters
+        ----------
+        image : Image
+            The frame to display.
+        status : str, default ""
+            Optional status text drawn above the image.
+        """
         if not self._started:
             self._begin()
         rows, cols = _display_cells(image, self.rows)
@@ -111,7 +120,9 @@ class KittyRenderer:
             "\x1b[2K\r",  # clear the status line
             status,
             "\n\r",  # drop to the image row, column 0
-            f"\x1b_Ga=d,i={self.image_id},q=2\x1b\\",  # delete only this gen's prev frame
+            # Delete ONLY this generation's previous frame. d=i scopes the delete to
+            # image id `i`; without it, d defaults to 'a' = delete ALL visible images.
+            f"\x1b_Ga=d,d=i,i={self.image_id},q=2\x1b\\",
             _kitty_transmit(image, rows, cols, image_id=self.image_id, no_move=True),
         ]
         sys.stdout.write("".join(parts))

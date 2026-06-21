@@ -6,11 +6,15 @@ noise (Kitty graphics protocol, e.g. Ghostty), and saves the final image.
 
 from __future__ import annotations
 
+import contextlib
 import time
 from dataclasses import dataclass
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from diffusion.utils.console import console
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @dataclass
@@ -37,6 +41,34 @@ def run_chat(
     rows: int,
     outdir: Path,
 ) -> None:
+    """Run the interactive chat REPL with live in-terminal denoising previews.
+
+    Loads the model once, then loops reading prompts; each prompt streams the
+    image as it emerges from noise and saves the final result to ``outdir``.
+
+    Parameters
+    ----------
+    repo_id : str
+        HuggingFace repository id of the model to run.
+    steps : int
+        Number of denoising steps per generation.
+    width, height : int
+        Output image dimensions in pixels.
+    seed : int or None
+        Random seed for reproducibility, or None for a random seed.
+    negative_prompt : str or None
+        Text describing what to avoid, or None.
+    device : str or None
+        Device override (e.g. ``"cuda"``, ``"mps"``, ``"cpu"``), or None to autodetect.
+    dtype : str or None
+        Torch dtype override, or None to autodetect.
+    low_mem : bool
+        If True, enable memory-saving optimizations (e.g. CPU offload).
+    rows : int
+        Number of terminal rows to use for the inline preview.
+    outdir : Path
+        Directory where generated images are saved.
+    """
     _quiet_libraries()
 
     from diffusion.core import generate
@@ -61,8 +93,12 @@ def run_chat(
     _print_help()
 
     settings = _Settings(
-        steps=steps, width=width, height=height, seed=seed,
-        negative_prompt=negative_prompt, outdir=outdir,
+        steps=steps,
+        width=width,
+        height=height,
+        seed=seed,
+        negative_prompt=negative_prompt,
+        outdir=outdir,
     )
     counter = 0
 
@@ -87,14 +123,33 @@ def run_chat(
 
         counter += 1
         _generate_one(
-            generate, write_sidecar, pipe, kind, plan, line, settings,
-            protocol=protocol, rows=rows, repo_id=repo_id, index=counter,
+            generate,
+            write_sidecar,
+            pipe,
+            kind,
+            plan,
+            line,
+            settings,
+            protocol=protocol,
+            rows=rows,
+            repo_id=repo_id,
+            index=counter,
         )
 
 
 def _generate_one(
-    generate, write_sidecar, pipe, kind, plan, prompt, settings, *,
-    protocol, rows, repo_id, index,
+    generate,
+    write_sidecar,
+    pipe,
+    kind,
+    plan,
+    prompt,
+    settings,
+    *,
+    protocol,
+    rows,
+    repo_id,
+    index,
 ):
     from diffusion.utils.terminal_image import KittyRenderer
 
@@ -109,9 +164,16 @@ def _generate_one(
     )
     start = time.perf_counter()
     image = generate.run_inference(
-        pipe, kind, plan, prompt=prompt, negative_prompt=settings.negative_prompt,
-        steps=settings.steps, width=settings.width, height=settings.height,
-        seed=settings.seed, low_mem=False,
+        pipe,
+        kind,
+        plan,
+        prompt=prompt,
+        negative_prompt=settings.negative_prompt,
+        steps=settings.steps,
+        width=settings.width,
+        height=settings.height,
+        seed=settings.seed,
+        low_mem=False,
         on_preview=on_preview if renderer else None,
     )
     elapsed = time.perf_counter() - start
@@ -124,10 +186,18 @@ def _generate_one(
     output = settings.outdir / f"chat_{index:03d}.png"
     image.save(output)
     write_sidecar(
-        output, repo_id=repo_id, kind=kind, prompt=prompt,
-        negative_prompt=settings.negative_prompt, steps=settings.steps,
-        width=settings.width, height=settings.height, seed=settings.seed,
-        device=plan.device, dtype=plan.dtype, elapsed_s=round(elapsed, 2),
+        output,
+        repo_id=repo_id,
+        kind=kind,
+        prompt=prompt,
+        negative_prompt=settings.negative_prompt,
+        steps=settings.steps,
+        width=settings.width,
+        height=settings.height,
+        seed=settings.seed,
+        device=plan.device,
+        dtype=plan.dtype,
+        elapsed_s=round(elapsed, 2),
     )
     console.print(f"[green]✓[/green] {output} ({elapsed:.1f}s)")
 
@@ -158,7 +228,9 @@ def _handle_command(line: str, settings: _Settings) -> None:
     )
 
 
-def _status_bar(step: int, total: int, *, done: bool = False, secs: float = 0.0, width: int = 24) -> str:
+def _status_bar(
+    step: int, total: int, *, done: bool = False, secs: float = 0.0, width: int = 24
+) -> str:
     step = min(step, total)
     filled = round(width * step / total) if total else width
     bar = "█" * filled + "░" * (width - filled)
@@ -183,10 +255,8 @@ def _quiet_libraries() -> None:
 
     # Disable the libraries' tqdm progress bars (separate from logging).
     for mod in ("diffusers.utils.logging", "transformers.utils.logging"):
-        try:
+        with contextlib.suppress(Exception):
             __import__(mod, fromlist=["disable_progress_bar"]).disable_progress_bar()
-        except Exception:
-            pass
 
 
 def _print_help() -> None:

@@ -41,9 +41,7 @@ def _fake_repo(repo_id: str, snapshot_path: Path, *, repo_type="model", size=123
 def test_list_models_filters_non_diffusion(tmp_path, mocker):
     sdxl = _make_repo_dir(tmp_path, "org/sdxl", "model_index_sdxl.json")
     llm = _make_repo_dir(tmp_path, "org/llm", None)  # no model_index.json
-    cache_info = SimpleNamespace(
-        repos=[_fake_repo("org/sdxl", sdxl), _fake_repo("org/llm", llm)]
-    )
+    cache_info = SimpleNamespace(repos=[_fake_repo("org/sdxl", sdxl), _fake_repo("org/llm", llm)])
     mocker.patch("huggingface_hub.scan_cache_dir", return_value=cache_info)
 
     entries = cache.list_models()

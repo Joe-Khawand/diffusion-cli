@@ -34,9 +34,17 @@ def test_generate_saves_image_and_sidecar(mocker, patched, tmp_path):
     out = tmp_path / "out.png"
 
     result = generate(
-        repo_id="org/sdxl", prompt="a cat", negative_prompt="blurry", steps=10,
-        width=512, height=512, output=out, seed=42,
-        device_override="cpu", dtype_override=None, low_mem=False,
+        repo_id="org/sdxl",
+        prompt="a cat",
+        negative_prompt="blurry",
+        steps=10,
+        width=512,
+        height=512,
+        output=out,
+        seed=42,
+        device_override="cpu",
+        dtype_override=None,
+        low_mem=False,
     )
 
     assert result == out
@@ -55,18 +63,34 @@ def test_generate_rejects_unknown_pipeline(mocker, patched, tmp_path):
     mocker.patch("diffusion.core.detect.detect_kind", return_value=PipelineKind.UNKNOWN)
     with pytest.raises(UnsupportedPipelineError):
         generate(
-            repo_id="org/whatever", prompt="x", negative_prompt=None, steps=5,
-            width=512, height=512, output=tmp_path / "o.png", seed=None,
-            device_override="cpu", dtype_override=None, low_mem=False,
+            repo_id="org/whatever",
+            prompt="x",
+            negative_prompt=None,
+            steps=5,
+            width=512,
+            height=512,
+            output=tmp_path / "o.png",
+            seed=None,
+            device_override="cpu",
+            dtype_override=None,
+            low_mem=False,
         )
 
 
 def test_flux_omits_negative_prompt(mocker, patched, tmp_path):
     mocker.patch("diffusion.core.detect.detect_kind", return_value=PipelineKind.FLUX)
     generate(
-        repo_id="org/flux", prompt="a cat", negative_prompt="blurry", steps=4,
-        width=512, height=512, output=tmp_path / "o.png", seed=None,
-        device_override="cpu", dtype_override=None, low_mem=False,
+        repo_id="org/flux",
+        prompt="a cat",
+        negative_prompt="blurry",
+        steps=4,
+        width=512,
+        height=512,
+        output=tmp_path / "o.png",
+        seed=None,
+        device_override="cpu",
+        dtype_override=None,
+        low_mem=False,
     )
     _, kwargs = patched.pipe.call_args
     assert "negative_prompt" not in kwargs

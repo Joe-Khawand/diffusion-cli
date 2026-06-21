@@ -7,7 +7,10 @@ accelerate manages device placement when offload is enabled, and calling
 
 from __future__ import annotations
 
-from diffusion.core.models import PipelineKind
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from diffusion.core.models import PipelineKind
 
 
 def apply_optimizations(pipe, device: str, kind: PipelineKind, *, low_mem: bool) -> None:
