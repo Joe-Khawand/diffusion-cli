@@ -7,10 +7,10 @@ noise (Kitty graphics protocol, e.g. Ghostty), and saves the final image.
 from __future__ import annotations
 
 import contextlib
-import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from diffusion.utils import ui
 from diffusion.utils.console import console
 
 if TYPE_CHECKING:
@@ -73,6 +73,7 @@ def run_chat(
 
     from diffusion.core import generate
     from diffusion.core.generate import write_sidecar
+    from diffusion.utils import prompt as prompt_input
     from diffusion.utils.terminal_image import detect_protocol
 
     protocol = detect_protocol()
@@ -82,16 +83,14 @@ def run_chat(
             "images will still be saved. (Force with DIFFUSION_FORCE_KITTY=1.)"
         )
 
-    console.print(f"Loading [bold]{repo_id}[/bold] …")
-    pipe, kind, plan = generate.load_pipeline(
-        repo_id, device_override=device, dtype_override=dtype, low_mem=low_mem
-    )
-    console.print(
-        f"[green]✓[/green] [bold]{repo_id}[/bold] ([cyan]{kind}[/cyan]) ready on "
-        f"[magenta]{plan.device}[/magenta]/{plan.dtype}."
-    )
-    _print_help()
+    with ui.loading_status(f"Loading {repo_id} …"):
+        pipe, kind, plan = generate.load_pipeline(
+            repo_id, device_override=device, dtype_override=dtype, low_mem=low_mem
+        )
+    console.print(ui.model_ready_panel(repo_id, kind, plan.device, plan.dtype))
+    console.print(ui.help_panel())
 
+    session = prompt_input.build_session()
     settings = _Settings(
         steps=steps,
         width=width,
@@ -104,7 +103,7 @@ def run_chat(
 
     while True:
         try:
-            line = console.input("\n[bold cyan]›[/bold cyan] ").strip()
+            line = prompt_input.read_prompt(session)
         except (EOFError, KeyboardInterrupt):
             console.print("\nBye.")
             return
@@ -115,7 +114,7 @@ def run_chat(
             console.print("Bye.")
             return
         if line == "/help":
-            _print_help()
+            console.print(ui.help_panel())
             continue
         if line.startswith("/"):
             _handle_command(line, settings)
@@ -151,19 +150,11 @@ def _generate_one(
     repo_id,
     index,
 ):
-    from diffusion.utils.terminal_image import KittyRenderer
-
-    renderer = KittyRenderer(rows=rows) if protocol == "kitty" else None
-    total = settings.steps
-
-    def on_preview(step_index, image):
-        renderer.show(image, status=_status_bar(step_index + 1, total))
-
     console.print(
         f"[dim]Generating {settings.width}×{settings.height}, {settings.steps} steps …[/dim]"
     )
-    start = time.perf_counter()
-    image = generate.run_inference(
+    image, elapsed = ui.run_with_preview(
+        generate,
         pipe,
         kind,
         plan,
@@ -174,13 +165,9 @@ def _generate_one(
         height=settings.height,
         seed=settings.seed,
         low_mem=False,
-        on_preview=on_preview if renderer else None,
+        protocol=protocol,
+        rows=rows,
     )
-    elapsed = time.perf_counter() - start
-
-    if renderer is not None:
-        renderer.show(image, status=_status_bar(total, total, done=True, secs=elapsed))
-        renderer.finish()
 
     settings.outdir.mkdir(parents=True, exist_ok=True)
     output = settings.outdir / f"chat_{index:03d}.png"
@@ -199,7 +186,15 @@ def _generate_one(
         dtype=plan.dtype,
         elapsed_s=round(elapsed, 2),
     )
-    console.print(f"[green]✓[/green] {output} ({elapsed:.1f}s)")
+    console.print(
+        ui.result_panel(
+            output,
+            settings.seed,
+            settings.steps,
+            f"{settings.width}×{settings.height}",
+            elapsed,
+        )
+    )
 
 
 def _handle_command(line: str, settings: _Settings) -> None:
@@ -222,21 +217,7 @@ def _handle_command(line: str, settings: _Settings) -> None:
     except ValueError:
         console.print(f"[red]Bad argument for {cmd}:[/red] '{arg}'")
         return
-    console.print(
-        f"[dim]steps={settings.steps} size={settings.width}×{settings.height} "
-        f"seed={settings.seed} neg={settings.negative_prompt!r}[/dim]"
-    )
-
-
-def _status_bar(
-    step: int, total: int, *, done: bool = False, secs: float = 0.0, width: int = 24
-) -> str:
-    step = min(step, total)
-    filled = round(width * step / total) if total else width
-    bar = "█" * filled + "░" * (width - filled)
-    if done:
-        return f"  ✓ {bar} {step}/{total}  ({secs:.1f}s)"
-    return f"  {bar} {step}/{total}  denoising…"
+    console.print(ui.settings_table(settings))
 
 
 def _quiet_libraries() -> None:
@@ -257,10 +238,3 @@ def _quiet_libraries() -> None:
     for mod in ("diffusers.utils.logging", "transformers.utils.logging"):
         with contextlib.suppress(Exception):
             __import__(mod, fromlist=["disable_progress_bar"]).disable_progress_bar()
-
-
-def _print_help() -> None:
-    console.print(
-        "[dim]Type a prompt to generate. Commands: /steps N · /size WxH · "
-        "/seed N|random · /neg <text> · /help · /exit[/dim]"
-    )
