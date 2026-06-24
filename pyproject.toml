@@ -10,6 +10,7 @@ dependencies = [
     "huggingface-hub>=1.20.1",
     "pillow>=12.2.0",
     "prompt-toolkit>=3.0.0",
+    "psutil>=5.9.0",
     "rich>=15.0.0",
     "safetensors>=0.8.0",
     "torch>=2.12.1",
@@ -35,6 +36,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-mock>=3.15.1",
     "ruff>=0.15.18",
+    "types-psutil>=7.1.0.20251121",
 ]
 
 [tool.pytest.ini_options]
@@ -78,3 +80,5 @@ convention = "numpy"
 venvPath = "."
 venv = ".venv"
 extraPaths = ["src"]
+include = ["src/diffusion"]
+reportPrivateImportUsage = "none"

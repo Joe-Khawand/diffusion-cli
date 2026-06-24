@@ -41,3 +41,51 @@ class UnsupportedPipelineError(DiffusionError):
 
 class DownloadError(DiffusionError):
     """A download failed (offline, repo not found, auth required)."""
+
+
+class InvalidSamplerError(DiffusionError):
+    """The requested sampler name isn't one we recognize."""
+
+    def __init__(self, name: str, available: list[str]) -> None:
+        super().__init__(
+            f"Unknown sampler '{name}'.",
+            hint=f"Available samplers: {', '.join(available)}.",
+        )
+        self.name = name
+
+
+_GB = 1024**3
+_MEM_HINT = (
+    "Try a smaller size (e.g. 512×512 or 768×768), add --low-mem, or bypass this "
+    "check with --force-size / DIFFUSION_SKIP_MEM_CHECK=1."
+)
+
+
+class InsufficientMemoryError(DiffusionError):
+    """A generation's estimated memory exceeds available RAM/VRAM."""
+
+    def __init__(
+        self, *, width: int, height: int, device: str, need_bytes: int, avail_bytes: int
+    ) -> None:
+        super().__init__(
+            f"{width}×{height} likely needs ~{need_bytes / _GB:.1f} GB on {device}, "
+            f"but only ~{avail_bytes / _GB:.1f} GB is available.",
+            hint=_MEM_HINT,
+        )
+        self.width = width
+        self.height = height
+        self.device = device
+
+    @classmethod
+    def from_oom(cls, *, width: int, height: int, device: str) -> InsufficientMemoryError:
+        """Build an error for a real out-of-memory crash (exact sizes unknown)."""
+        self = cls.__new__(cls)
+        DiffusionError.__init__(
+            self,
+            f"Ran out of memory generating {width}×{height} on {device}.",
+            hint=_MEM_HINT,
+        )
+        self.width = width
+        self.height = height
+        self.device = device
+        return self

@@ -48,6 +48,7 @@ if TYPE_CHECKING:
         height: int
         seed: int | None
         negative_prompt: str | None
+        sampler: str
 
 
 # --- Warm "sunset" palette -------------------------------------------------
@@ -163,6 +164,7 @@ def settings_table(settings: _SettingsLike) -> Table:
     table.add_row("✦ size", f"{settings.width}×{settings.height}")
     table.add_row("✦ seed", seed)
     table.add_row("✦ negative", neg)
+    table.add_row("✦ sampler", getattr(settings, "sampler", "default"))
     return table
 
 
@@ -182,6 +184,7 @@ def help_panel() -> Panel:
     table.add_row("/seed N|random", "fix or randomize the seed")
     table.add_row("/neg <text>", "set the negative prompt")
     table.add_row("/cfg N", "set the guidance scale")
+    table.add_row("/sampler <name>", "switch sampler (euler, dpm++, …)")
     table.add_row("/help", "show this help")
     table.add_row("/exit", "quit")
     return Panel(
@@ -327,6 +330,7 @@ def run_with_preview(
     low_mem: bool,
     protocol: str,
     rows: int,
+    force_size: bool = False,
     init_image: Image | None = None,
     mask_image: Image | None = None,
     control_image: Image | None = None,
@@ -365,6 +369,8 @@ def run_with_preview(
         ``"kitty"`` for inline previews, anything else for the Rich fallback.
     rows : int
         Number of terminal rows for the inline preview region.
+    force_size : bool, default False
+        Bypass the pre-flight memory safety check for the requested dimensions.
 
     Returns
     -------
@@ -373,7 +379,10 @@ def run_with_preview(
     """
     start = time.perf_counter()
 
-    if protocol == "kitty":
+    # The inline image region only makes sense when the family has a latent->RGB
+    # preview projection. Without one (e.g. Sana, PixArt, Qwen-Image) fall through
+    # to the Rich progress bar so denoising progress is still shown.
+    if protocol == "kitty" and getattr(family, "preview", None) is not None:
         import os
 
         from diffusion.utils.terminal_image import KittyRenderer
@@ -382,32 +391,37 @@ def run_with_preview(
         renderer = KittyRenderer(rows=rows, gap=1, border_palette=palette)
         renderer.start()  # steady-rate border animation, independent of denoising steps
 
-        def on_preview(step_index: int, image: Image) -> None:
+        def on_preview(step_index: int, image: Image | None) -> None:
+            if image is None:
+                return  # preview families occasionally yield None; keep the last frame
             elapsed = time.perf_counter() - start
             renderer.show(image, status=status_line(step_index + 1, steps, elapsed=elapsed))
 
-        image = generate_module.run_inference(
-            pipe,
-            family,
-            plan,
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            steps=steps,
-            width=width,
-            height=height,
-            seed=seed,
-            low_mem=low_mem,
-            init_image=init_image,
-            mask_image=mask_image,
-            control_image=control_image,
-            strength=strength,
-            guidance_scale=guidance_scale,
-            on_preview=on_preview,
-        )
-        elapsed = time.perf_counter() - start
-        renderer.show(image, status=status_line(steps, steps, elapsed=elapsed, done=True))
-        renderer.finish()
-        return image, elapsed
+        try:
+            image = generate_module.run_inference(
+                pipe,
+                family,
+                plan,
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                steps=steps,
+                width=width,
+                height=height,
+                seed=seed,
+                low_mem=low_mem,
+                force_size=force_size,
+                init_image=init_image,
+                mask_image=mask_image,
+                control_image=control_image,
+                strength=strength,
+                guidance_scale=guidance_scale,
+                on_preview=on_preview,
+            )
+            elapsed = time.perf_counter() - start
+            renderer.show(image, status=status_line(steps, steps, elapsed=elapsed, done=True))
+            return image, elapsed
+        finally:
+            renderer.finish()
 
     # Fallback: no inline image, drive a Rich progress bar from the step callback.
     with make_progress() as progress:
@@ -427,6 +441,7 @@ def run_with_preview(
             height=height,
             seed=seed,
             low_mem=low_mem,
+            force_size=force_size,
             init_image=init_image,
             mask_image=mask_image,
             control_image=control_image,

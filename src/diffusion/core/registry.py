@@ -394,11 +394,71 @@ UNKNOWN = ModelFamily(
 NON_IMAGE_SUFFIXES: tuple[str, ...] = ("Video", "Audio", "Speech", "Music")
 
 
+# Rough peak memory to run inference at fp16, single image at the model's native
+# resolution, BEFORE any --low-mem/offload. Offload trades this down for speed.
+# Dominated by the text encoder for some families (T5-XXL, ChatGLM, GLM-4).
+# Approximate, for picking hardware — not a hard limit.
+_VRAM_GB: dict[str, float] = {
+    "sd1.5": 4,
+    "sdxl": 10,
+    "lcm": 4,
+    "kolors": 16,
+    "sd3": 14,
+    "flux": 24,
+    "flux2": 32,
+    "chroma": 18,
+    "pixart-alpha": 12,
+    "pixart-sigma": 12,
+    "sana": 9,
+    "auraflow": 16,
+    "lumina": 12,
+    "lumina2": 16,
+    "hunyuan-dit": 14,
+    "kandinsky2.2": 8,
+    "kandinsky3": 24,
+    "wuerstchen": 10,
+    "stable-cascade": 16,
+    "cogview3": 16,
+    "cogview4": 24,
+    "qwen-image": 40,
+    "z-image": 12,
+    "deepfloyd-if": 16,
+}
+
+
 def by_class_name(class_name: str | None) -> ModelFamily | None:
     """Return the curated family for a diffusers ``_class_name``, if known."""
     if not class_name:
         return None
     return BY_CLASS.get(class_name)
+
+
+def vram_hint(family: ModelFamily) -> str:
+    """Return an approximate fp16 inference-memory string (e.g. ``"~10 GB"``).
+
+    Returns ``"—"`` when no estimate is curated (e.g. the GENERIC fallback).
+    """
+    gb = _VRAM_GB.get(family.id)
+    return f"~{gb:g} GB" if gb is not None else "—"
+
+
+def family_by_id(slug: str) -> ModelFamily | None:
+    """Return the curated family with id ``slug`` (e.g. ``"sdxl"``), if any."""
+    return next((fam for fam in FAMILIES if fam.id == slug), None)
+
+
+def resolve_repo(arg: str) -> str:
+    """Map a family slug to its example HuggingFace repo; pass repo ids through.
+
+    Lets users ``diffusion pull sdxl`` instead of copying a full repo id. Family
+    slugs never contain ``/`` (real repo ids always do), so this is unambiguous.
+    """
+    if "/" in arg:
+        return arg
+    fam = family_by_id(arg)
+    if fam is not None and fam.example_repos:
+        return fam.example_repos[0]
+    return arg
 
 
 def require(class_name: str) -> ModelFamily:

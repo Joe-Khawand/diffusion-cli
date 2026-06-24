@@ -21,12 +21,14 @@ def run_generate(
     device: str | None,
     dtype: str | None,
     low_mem: bool,
+    force_size: bool = False,
     init_image: Path | None = None,
     mask_image: Path | None = None,
     control_image: Path | None = None,
     controlnet: str | None = None,
     strength: float | None = None,
     guidance_scale: float | None = None,
+    sampler: str | None = None,
 ) -> None:
     """Generate a single image from ``prompt`` and write it to ``output``.
 
@@ -56,6 +58,8 @@ def run_generate(
         Torch dtype override, or None to autodetect.
     low_mem : bool
         If True, enable memory-saving optimizations (e.g. CPU offload).
+    force_size : bool
+        If True, bypass the pre-flight memory safety check for the requested size.
     init_image : Path or None
         Init image for img2img / inpaint.
     mask_image : Path or None
@@ -68,14 +72,23 @@ def run_generate(
         Denoising strength for img2img/inpaint (0-1).
     guidance_scale : float or None
         Classifier-free guidance scale override.
+    sampler : str or None
+        Sampler/scheduler name to use (e.g. ``"euler"``, ``"dpm++"``), or None to
+        keep the model's default scheduler.
     """
+    from diffusion.utils.console import quiet_diffusion_libraries
+
+    quiet_diffusion_libraries()
+
     from diffusion.core import generate as generate_module
+    from diffusion.core import registry
     from diffusion.core.generate import load_image, write_sidecar
     from diffusion.core.models import Task
     from diffusion.utils import ui
     from diffusion.utils.console import console
     from diffusion.utils.terminal_image import detect_protocol
 
+    repo_id = registry.resolve_repo(repo_id)
     protocol = detect_protocol()
     if protocol == "none":
         console.print(
@@ -99,6 +112,7 @@ def run_generate(
             device_override=device,
             dtype_override=dtype,
             low_mem=low_mem,
+            sampler=sampler,
         )
     console.print(ui.model_ready_panel(repo_id, family, plan.device, plan.dtype))
     console.print(f"[dim]Generating {task} · {width}×{height}, {steps} steps …[/dim]")
@@ -115,6 +129,7 @@ def run_generate(
         height=height,
         seed=seed,
         low_mem=low_mem,
+        force_size=force_size,
         protocol=protocol,
         rows=20,
         init_image=load_image(init_image),
@@ -140,6 +155,7 @@ def run_generate(
         controlnet=controlnet,
         strength=strength,
         guidance_scale=guidance_scale,
+        sampler=type(pipe.scheduler).__name__,
         device=plan.device,
         dtype=plan.dtype,
         elapsed_s=round(elapsed, 2),

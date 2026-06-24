@@ -20,15 +20,17 @@ from typing import TYPE_CHECKING
 
 from diffusion.core.models import DeviceInfo, ModelFamily, Task
 from diffusion.utils.console import console
-from diffusion.utils.errors import UnsupportedPipelineError
+from diffusion.utils.errors import InsufficientMemoryError, UnsupportedPipelineError
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from PIL.Image import Image
 
-# Called with (step_index, preview_image) after each denoising step.
-PreviewCallback = Callable[[int, "Image"], None]
+# Called with (step_index, preview_image) after each denoising step. The preview
+# is None for families without a latent->RGB projection; callbacks still fire so
+# progress reporting works regardless of whether a preview can be rendered.
+PreviewCallback = Callable[[int, "Image | None"], None]
 
 
 def _auto_class(task: Task):
@@ -54,8 +56,14 @@ def load_pipeline(
     device_override: str | None,
     dtype_override: str | None,
     low_mem: bool,
+    sampler: str | None = None,
 ):
-    """Resolve, load, and optimize a pipeline. Returns (pipe, family, plan)."""
+    """Resolve, load, and optimize a pipeline. Returns (pipe, family, plan).
+
+    If ``sampler`` is given, the pipeline's default scheduler is swapped for the
+    named sampler (see :mod:`diffusion.core.samplers`); otherwise the model's own
+    default scheduler is kept.
+    """
     from diffusion.core import cache, hardware, optimize
     from diffusion.core.detect import detect_family
     from diffusion.utils.console import suppress_transformers_docstring_noise
@@ -75,13 +83,20 @@ def load_pipeline(
     # which prints cosmetic "[ERROR] ... not documented" lines to stdout.
     with suppress_transformers_docstring_noise():
         load_kwargs: dict = {"torch_dtype": hardware.torch_dtype(plan.dtype)}
+        # We download only the fp16 weight variant when one exists, so tell
+        # diffusers to load it (it falls back to fp32 per-component otherwise).
+        variant = cache.detect_variant(snapshot)
+        if variant is not None:
+            load_kwargs["variant"] = variant
         if controlnet_repo is not None:
             from diffusers import ControlNetModel
 
             cn_snapshot = cache.resolve_local(controlnet_repo)
-            load_kwargs["controlnet"] = ControlNetModel.from_pretrained(
-                cn_snapshot, torch_dtype=hardware.torch_dtype(plan.dtype)
-            )
+            cn_kwargs: dict = {"torch_dtype": hardware.torch_dtype(plan.dtype)}
+            cn_variant = cache.detect_variant(cn_snapshot)
+            if cn_variant is not None:
+                cn_kwargs["variant"] = cn_variant
+            load_kwargs["controlnet"] = ControlNetModel.from_pretrained(cn_snapshot, **cn_kwargs)
 
         auto_cls = _auto_class(task)
         try:
@@ -90,6 +105,11 @@ def load_pipeline(
             raise UnsupportedPipelineError(
                 repo_id, f"diffusers could not route this model to a {task} pipeline"
             ) from exc
+
+    if sampler is not None:
+        from diffusion.core import samplers
+
+        samplers.apply_sampler(pipe, sampler)
 
     optimize.apply_optimizations(pipe, plan.device, family, low_mem=low_mem)
     return pipe, family, plan
@@ -107,6 +127,7 @@ def run_inference(
     height: int,
     seed: int | None,
     low_mem: bool,
+    force_size: bool = False,
     init_image: Image | None = None,
     mask_image: Image | None = None,
     control_image: Image | None = None,
@@ -119,8 +140,27 @@ def run_inference(
     Only arguments the pipeline's ``__call__`` actually accepts are forwarded, so
     families that ignore ``width``/``height`` (img2img) or lack a negative prompt
     (FLUX) work without bespoke handling.
+
+    For text-to-image, the requested ``width``/``height`` are validated and a
+    pre-flight memory check refuses sizes that would likely exhaust RAM/VRAM
+    (unless ``force_size`` is set). img2img/inpaint take their size from the init
+    image, so the check is skipped there.
     """
     import torch
+
+    from diffusion.core import memory
+
+    if init_image is None and mask_image is None:
+        memory.validate_dimensions(width, height)
+        if not force_size:
+            memory.check_memory(
+                width=width,
+                height=height,
+                dtype=plan.dtype,
+                steps=steps,
+                family=family,
+                device=plan.device,
+            )
 
     params = inspect.signature(pipe.__call__).parameters
     has_var_kw = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
@@ -166,18 +206,35 @@ def run_inference(
             pipe.set_progress_bar_config(disable=True)
 
         def _callback(_pipe, step_index, _timestep, callback_kwargs):
+            # The preview image is None for families without a latent->RGB
+            # projection; we still fire on_preview every step so progress reporting
+            # advances regardless. Both are best-effort — never break generation.
+            preview = None
             try:
-                preview = latents_to_preview(callback_kwargs["latents"], family)
-                if preview is not None:
-                    on_preview(step_index, preview)
+                preview = latents_to_preview(callback_kwargs.get("latents"), family)
             except Exception:
-                pass  # previews are best-effort; never break generation
+                preview = None
+            with contextlib.suppress(Exception):
+                on_preview(step_index, preview)
             return callback_kwargs
 
         call_kwargs["callback_on_step_end"] = _callback
         call_kwargs["callback_on_step_end_tensor_inputs"] = ["latents"]
 
-    return pipe(**call_kwargs).images[0]
+    try:
+        return pipe(**call_kwargs).images[0]
+    except (torch.cuda.OutOfMemoryError, MemoryError, RuntimeError) as exc:
+        is_oom = isinstance(exc, (torch.cuda.OutOfMemoryError, MemoryError)) or any(
+            kw in str(exc).lower() for kw in ("out of memory", "alloc")
+        )
+        if not is_oom:
+            raise  # an unrelated RuntimeError — leave it untouched
+        if plan.device == "cuda":
+            with contextlib.suppress(Exception):
+                torch.cuda.empty_cache()
+        raise InsufficientMemoryError.from_oom(
+            width=width, height=height, device=plan.device
+        ) from exc
 
 
 def load_image(path: Path | None) -> Image | None:
@@ -208,6 +265,7 @@ def generate(
     controlnet_repo: str | None = None,
     strength: float | None = None,
     guidance_scale: float | None = None,
+    sampler: str | None = None,
 ) -> Path:
     """One-shot generation: load, run, and save image + sidecar.
 
@@ -228,6 +286,7 @@ def generate(
         device_override=device_override,
         dtype_override=dtype_override,
         low_mem=low_mem,
+        sampler=sampler,
     )
     console.print(
         f"Loaded [bold]{repo_id}[/bold] ([cyan]{family.label}[/cyan]) on "
@@ -270,6 +329,7 @@ def generate(
         controlnet=controlnet_repo,
         strength=strength,
         guidance_scale=guidance_scale,
+        sampler=type(pipe.scheduler).__name__,
         device=plan.device,
         dtype=plan.dtype,
         elapsed_s=round(elapsed, 2),

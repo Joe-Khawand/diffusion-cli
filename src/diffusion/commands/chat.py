@@ -6,12 +6,11 @@ noise (Kitty graphics protocol, e.g. Ghostty), and saves the final image.
 
 from __future__ import annotations
 
-import contextlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from diffusion.utils import ui
-from diffusion.utils.console import console
+from diffusion.utils.console import console, quiet_diffusion_libraries
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -26,6 +25,9 @@ class _Settings:
     negative_prompt: str | None
     outdir: Path
     guidance_scale: float | None = None
+    force_size: bool = False
+    low_mem: bool = False
+    sampler: str = "default"  # diffusers scheduler class name currently on the pipe
 
 
 def run_chat(
@@ -39,8 +41,10 @@ def run_chat(
     device: str | None,
     dtype: str | None,
     low_mem: bool,
+    force_size: bool,
     rows: int,
     outdir: Path,
+    sampler: str | None = None,
 ) -> None:
     """Run the interactive chat REPL with live in-terminal denoising previews.
 
@@ -65,18 +69,24 @@ def run_chat(
         Torch dtype override, or None to autodetect.
     low_mem : bool
         If True, enable memory-saving optimizations (e.g. CPU offload).
+    force_size : bool
+        If True, bypass the pre-flight memory safety check for the requested size.
     rows : int
         Number of terminal rows to use for the inline preview.
     outdir : Path
         Directory where generated images are saved.
+    sampler : str or None
+        Initial sampler/scheduler name (e.g. ``"euler"``, ``"dpm++"``), or None to
+        keep the model's default. Switch it live with ``/sampler``.
     """
     _quiet_libraries()
 
-    from diffusion.core import generate
+    from diffusion.core import generate, registry, samplers
     from diffusion.core.generate import write_sidecar
     from diffusion.utils import prompt as prompt_input
     from diffusion.utils.terminal_image import detect_protocol
 
+    repo_id = registry.resolve_repo(repo_id)
     protocol = detect_protocol()
     if protocol == "none":
         console.print(
@@ -86,7 +96,11 @@ def run_chat(
 
     with ui.loading_status(f"Loading {repo_id} …"):
         pipe, family, plan = generate.load_pipeline(
-            repo_id, device_override=device, dtype_override=dtype, low_mem=low_mem
+            repo_id,
+            device_override=device,
+            dtype_override=dtype,
+            low_mem=low_mem,
+            sampler=sampler,
         )
     console.print(ui.model_ready_panel(repo_id, family, plan.device, plan.dtype))
     console.print(ui.help_panel())
@@ -99,6 +113,9 @@ def run_chat(
         seed=seed,
         negative_prompt=negative_prompt,
         outdir=outdir,
+        force_size=force_size,
+        low_mem=low_mem,
+        sampler=samplers.current_sampler(pipe),
     )
     counter = 0
 
@@ -118,7 +135,7 @@ def run_chat(
             console.print(ui.help_panel())
             continue
         if line.startswith("/"):
-            _handle_command(line, settings)
+            _handle_command(line, settings, pipe)
             continue
 
         counter += 1
@@ -165,7 +182,8 @@ def _generate_one(
         width=settings.width,
         height=settings.height,
         seed=settings.seed,
-        low_mem=False,
+        low_mem=settings.low_mem,
+        force_size=settings.force_size,
         protocol=protocol,
         rows=rows,
         guidance_scale=settings.guidance_scale,
@@ -184,6 +202,7 @@ def _generate_one(
         width=settings.width,
         height=settings.height,
         seed=settings.seed,
+        sampler=settings.sampler,
         device=plan.device,
         dtype=plan.dtype,
         elapsed_s=round(elapsed, 2),
@@ -204,7 +223,10 @@ def _close() -> None:
     console.print("[dim]✦ session ended[/dim]")
 
 
-def _handle_command(line: str, settings: _Settings) -> None:
+def _handle_command(line: str, settings: _Settings, pipe) -> None:
+    from diffusion.core import memory, samplers
+    from diffusion.utils.errors import DiffusionError
+
     parts = line.split(maxsplit=1)
     cmd = parts[0]
     arg = parts[1].strip() if len(parts) > 1 else ""
@@ -218,32 +240,33 @@ def _handle_command(line: str, settings: _Settings) -> None:
         elif cmd == "/cfg":
             settings.guidance_scale = None if arg in ("", "none", "default") else float(arg)
         elif cmd == "/size":
-            w, h = arg.lower().split("x")
-            settings.width, settings.height = int(w), int(h)
+            w_str, h_str = arg.lower().split("x")
+            width, height = int(w_str), int(h_str)
+            memory.validate_dimensions(width, height)  # reject bad sizes before they stick
+            settings.width, settings.height = width, height
+        elif cmd == "/sampler":
+            if not arg:
+                console.print(
+                    f"[dim]current:[/dim] {settings.sampler}   "
+                    f"[dim]available:[/dim] {', '.join(samplers.available_samplers())}"
+                )
+                return
+            samplers.apply_sampler(pipe, arg)  # raises InvalidSamplerError if unknown
+            settings.sampler = samplers.current_sampler(pipe)
         else:
             console.print(f"[yellow]Unknown command:[/yellow] {cmd}. Type /help.")
             return
     except ValueError:
         console.print(f"[red]Bad argument for {cmd}:[/red] '{arg}'")
         return
+    except DiffusionError as exc:
+        console.print(f"[red]{exc.message}[/red]")
+        if exc.hint:
+            console.print(f"[dim]{exc.hint}[/dim]")
+        return
     console.print(ui.settings_table(settings))
 
 
 def _quiet_libraries() -> None:
     """Suppress torch/transformers/diffusers log spam and progress bars."""
-    import logging
-    import os
-    import warnings
-
-    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "critical")
-    os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
-    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-    warnings.filterwarnings("ignore")
-    for name in ("transformers", "diffusers", "accelerate", "huggingface_hub"):
-        logging.getLogger(name).setLevel(logging.CRITICAL)
-
-    # Disable the libraries' tqdm progress bars (separate from logging).
-    for mod in ("diffusers.utils.logging", "transformers.utils.logging"):
-        with contextlib.suppress(Exception):
-            __import__(mod, fromlist=["disable_progress_bar"]).disable_progress_bar()
+    quiet_diffusion_libraries()

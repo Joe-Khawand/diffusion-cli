@@ -24,19 +24,12 @@ def run_catalog() -> None:
     table = Table(title="Supported model families")
     table.add_column("Family", style="bold")
     table.add_column("Slug", style="cyan")
-    table.add_column("Notes")
-    table.add_column("Example repo to pull", style="green")
+    table.add_column("Mem (fp16)", style="magenta", justify="right")
+    table.add_column("Example repo to pull", style="green", overflow="fold")
 
     for fam in families:
-        notes = []
-        if fam.memory_heavy:
-            notes.append("large/offload")
-        if fam.preview is not None:
-            notes.append("live preview")
-        if not fam.supports_negative_prompt:
-            notes.append("no negative prompt")
         example = fam.example_repos[0] if fam.example_repos else "—"
-        table.add_row(fam.label, fam.id, ", ".join(notes) or "—", example)
+        table.add_row(fam.label, fam.id, registry.vram_hint(fam), example)
 
     console.print(table)
     if hidden:
@@ -45,6 +38,11 @@ def run_catalog() -> None:
             "version and were hidden. Upgrade diffusers to enable them.[/dim]"
         )
     console.print(
-        "[dim]Any other diffusers text-to-image repo also works via auto-detection. "
-        "Pull one with 'diffusion pull <repo_id>'.[/dim]"
+        "[dim]Mem (fp16) is approximate peak memory to run inference before offload — "
+        "pass [/dim][bold]--low-mem[/bold][dim] to trade memory for speed.[/dim]"
+    )
+    console.print(
+        "[dim]Grab a family's example with [/dim][bold]diffusion pull <slug>[/bold]"
+        "[dim] (e.g. 'diffusion pull sdxl'), or pull any diffusers text-to-image repo "
+        "directly with 'diffusion pull <repo_id>'.[/dim]"
     )

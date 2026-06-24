@@ -45,11 +45,25 @@ def pull(
     repo_id: Annotated[
         str, typer.Argument(help="HuggingFace repo id, e.g. 'stabilityai/sdxl-turbo'.")
     ],
+    variant: Annotated[
+        str | None,
+        typer.Option("--variant", help="Precision to download: fp16, bf16, or fp32."),
+    ] = None,
 ) -> None:
     """Download a diffusion model from HuggingFace into the local cache."""
     from diffusion.commands.pull import run_pull
 
-    run_pull(repo_id)
+    run_pull(repo_id, variant=variant)
+
+
+@app.command()
+def variants(
+    repo_id: Annotated[str, typer.Argument(help="HuggingFace repo id to inspect.")],
+) -> None:
+    """List a repo's downloadable precision variants with sizes and memory load."""
+    from diffusion.commands.variants import run_variants
+
+    run_variants(repo_id)
 
 
 @app.command(name="list")
@@ -118,6 +132,10 @@ def run(
     low_mem: Annotated[
         bool, typer.Option("--low-mem", help="Enable slicing + CPU offload for low memory.")
     ] = False,
+    force_size: Annotated[
+        bool,
+        typer.Option("--force-size", help="Bypass the memory safety check for the requested size."),
+    ] = False,
     image: Annotated[
         Path | None,
         typer.Option("--image", "-i", help="Init image for img2img / inpaint."),
@@ -138,6 +156,10 @@ def run(
         Path | None,
         typer.Option("--control-image", help="Pre-processed control map (canny/depth/…)."),
     ] = None,
+    sampler: Annotated[
+        str | None,
+        typer.Option("--sampler", help="Sampler: euler, euler-a, dpm++, ddim, unipc, … "),
+    ] = None,
 ) -> None:
     """Generate an image from a text prompt (text2img, img2img, inpaint, ControlNet)."""
     from diffusion.commands.run import run_generate
@@ -154,12 +176,14 @@ def run(
         device=device,
         dtype=dtype,
         low_mem=low_mem,
+        force_size=force_size,
         init_image=image,
         mask_image=mask,
         control_image=control_image,
         controlnet=controlnet,
         strength=strength,
         guidance_scale=guidance_scale,
+        sampler=sampler,
     )
 
 
@@ -180,10 +204,17 @@ def chat(
         str | None, typer.Option("--dtype", help="Force float16, bfloat16, float32.")
     ] = None,
     low_mem: Annotated[bool, typer.Option("--low-mem", help="Slicing + CPU offload.")] = False,
+    force_size: Annotated[
+        bool, typer.Option("--force-size", help="Bypass the memory safety check for the size.")
+    ] = False,
     rows: Annotated[int, typer.Option("--rows", help="Preview height in terminal rows.")] = 20,
     outdir: Annotated[
         Path, typer.Option("--outdir", help="Where to save generated images.")
     ] = Path("outputs"),
+    sampler: Annotated[
+        str | None,
+        typer.Option("--sampler", help="Sampler: euler, euler-a, dpm++, ddim, unipc, … "),
+    ] = None,
 ) -> None:
     """Interactive chat: stream the image as it denoises, inline in the terminal."""
     from diffusion.commands.chat import run_chat
@@ -198,8 +229,10 @@ def chat(
         device=device,
         dtype=dtype,
         low_mem=low_mem,
+        force_size=force_size,
         rows=rows,
         outdir=outdir,
+        sampler=sampler,
     )
 
 

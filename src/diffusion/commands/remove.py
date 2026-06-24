@@ -30,5 +30,5 @@ def run_remove(repo_id: str, *, yes: bool = False) -> None:
 
     freed = cache.remove(repo_id)
     console.print(
-        f"[green]✓[/green] Removed [bold]{repo_id}[/bold] (freed {cache._human_size(freed)})"
+        f"[green]✓[/green] Removed [bold]{repo_id}[/bold] (freed {cache.human_size(freed)})"
     )

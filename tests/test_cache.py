@@ -89,10 +89,132 @@ def test_remove_missing_raises(mocker):
 
 def test_pull_returns_family(tmp_path, mocker):
     snap = _make_repo_dir(tmp_path, "org/flux", "model_index_flux.json")
+    mocker.patch("huggingface_hub.HfApi.list_repo_files", return_value=["model_index.json"])
     mocker.patch("huggingface_hub.snapshot_download", return_value=str(snap))
     path, family = cache.pull("org/flux")
     assert path == snap
     assert family.id == "flux"
+
+
+# --- Lean download selection (the SD 1.5 ~35 GB → few GB fix) ---------------
+_SD15_REPO_FILES = [
+    "model_index.json",
+    "safety_checker/config.json",
+    "safety_checker/model.fp16.safetensors",
+    "safety_checker/model.safetensors",
+    "safety_checker/pytorch_model.bin",
+    "safety_checker/pytorch_model.fp16.bin",
+    "text_encoder/config.json",
+    "text_encoder/model.fp16.safetensors",
+    "text_encoder/model.safetensors",
+    "text_encoder/pytorch_model.bin",
+    "tokenizer/merges.txt",
+    "tokenizer/vocab.json",
+    "unet/config.json",
+    "unet/diffusion_pytorch_model.bin",
+    "unet/diffusion_pytorch_model.fp16.safetensors",
+    "unet/diffusion_pytorch_model.non_ema.safetensors",
+    "unet/diffusion_pytorch_model.safetensors",
+    "vae/config.json",
+    "vae/diffusion_pytorch_model.fp16.safetensors",
+    "vae/diffusion_pytorch_model.safetensors",
+    "v1-5-pruned.safetensors",
+    "v1-5-pruned-emaonly.safetensors",
+    "model.ckpt",
+    "README.md",
+]
+
+
+def test_select_download_files_picks_one_fp16_variant_per_component():
+    selected = set(cache.select_files(_SD15_REPO_FILES))
+    weights = {f for f in selected if f.endswith((".safetensors", ".bin"))}
+    assert weights == {
+        "safety_checker/model.fp16.safetensors",
+        "text_encoder/model.fp16.safetensors",
+        "unet/diffusion_pytorch_model.fp16.safetensors",
+        "vae/diffusion_pytorch_model.fp16.safetensors",
+    }
+
+
+def test_select_download_files_keeps_all_metadata():
+    selected = set(cache.select_files(_SD15_REPO_FILES))
+    assert {"model_index.json", "unet/config.json", "tokenizer/merges.txt"} <= selected
+    assert "README.md" not in selected  # non-config files are dropped
+
+
+def test_select_download_files_drops_bloat():
+    selected = set(cache.select_files(_SD15_REPO_FILES))
+    for dropped in (
+        "v1-5-pruned.safetensors",  # top-level single-file checkpoint
+        "model.ckpt",  # single-file ckpt format
+        "unet/diffusion_pytorch_model.non_ema.safetensors",  # training-only EMA weights
+        "unet/diffusion_pytorch_model.bin",  # .bin when safetensors exists
+        "unet/diffusion_pytorch_model.safetensors",  # fp32 when fp16 exists
+    ):
+        assert dropped not in selected
+
+
+def test_select_component_falls_back_when_no_fp16():
+    files = ["text_encoder/config.json", "text_encoder/model.safetensors"]
+    assert set(cache.select_files(files)) == {
+        "text_encoder/config.json",
+        "text_encoder/model.safetensors",
+    }
+
+
+def test_select_component_uses_bin_when_no_safetensors():
+    files = ["text_encoder/config.json", "text_encoder/pytorch_model.bin"]
+    assert "text_encoder/pytorch_model.bin" in cache.select_files(files)
+
+
+def test_resolve_allow_patterns_falls_back_on_api_error(mocker):
+    mocker.patch("huggingface_hub.HfApi.list_repo_files", side_effect=RuntimeError("offline"))
+    assert cache._resolve_allow_patterns("org/x") == cache._ALLOW_PATTERNS
+
+
+def test_detect_variant_fp16(tmp_path):
+    (tmp_path / "unet").mkdir()
+    (tmp_path / "unet" / "diffusion_pytorch_model.fp16.safetensors").write_bytes(b"")
+    assert cache.detect_variant(tmp_path) == "fp16"
+
+
+def test_detect_variant_bf16(tmp_path):
+    (tmp_path / "unet").mkdir()
+    (tmp_path / "unet" / "diffusion_pytorch_model.bf16.safetensors").write_bytes(b"")
+    assert cache.detect_variant(tmp_path) == "bf16"
+
+
+def test_detect_variant_none(tmp_path):
+    (tmp_path / "unet").mkdir()
+    (tmp_path / "unet" / "diffusion_pytorch_model.safetensors").write_bytes(b"")
+    assert cache.detect_variant(tmp_path) is None
+
+
+# --- Per-variant selection (drives `pull --variant` and the variants listing) ---
+_MULTI_PREC_FILES = [
+    "unet/config.json",
+    "unet/diffusion_pytorch_model.fp16.safetensors",
+    "unet/diffusion_pytorch_model.bf16.safetensors",
+    "unet/diffusion_pytorch_model.safetensors",
+    "vae/diffusion_pytorch_model.fp16.safetensors",  # only fp16 here
+]
+
+
+def test_available_precisions_order():
+    assert cache.available_precisions(_MULTI_PREC_FILES) == ["fp16", "bf16", "fp32"]
+
+
+def test_select_files_fp32_picks_plain_weights():
+    weights = {f for f in cache.select_files(_MULTI_PREC_FILES, variant="fp32") if "model" in f}
+    assert weights == {
+        "unet/diffusion_pytorch_model.safetensors",
+        "vae/diffusion_pytorch_model.fp16.safetensors",  # vae lacks fp32 → falls back
+    }
+
+
+def test_select_files_bf16_picks_bf16():
+    weights = {f for f in cache.select_files(_MULTI_PREC_FILES, variant="bf16") if "model" in f}
+    assert "unet/diffusion_pytorch_model.bf16.safetensors" in weights
 
 
 def test_peek_family_reads_only_model_index(tmp_path, mocker):

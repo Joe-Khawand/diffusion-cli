@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import warnings
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
@@ -64,3 +65,25 @@ def suppress_transformers_docstring_noise() -> Generator[None]:
     finally:
         sys.stdout.flush()
         sys.stdout = original
+
+
+def quiet_diffusion_libraries() -> None:
+    """Suppress torch/transformers/diffusers log spam and progress bars."""
+    import contextlib
+    import logging
+    import os
+
+    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "critical")
+    os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    warnings.filterwarnings("ignore")
+    for name in ("transformers", "diffusers", "accelerate", "huggingface_hub"):
+        logging.getLogger(name).setLevel(logging.CRITICAL)
+
+    # Disable the libraries' tqdm progress bars and lower their own verbosity.
+    for mod in ("diffusers.utils.logging", "transformers.utils.logging"):
+        with contextlib.suppress(Exception):
+            lib_logging = __import__(mod, fromlist=["disable_progress_bar", "set_verbosity_error"])
+            lib_logging.disable_progress_bar()
+            lib_logging.set_verbosity_error()

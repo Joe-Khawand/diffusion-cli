@@ -15,7 +15,7 @@ def run_info(repo_id: str) -> None:
     """
     from rich.table import Table
 
-    from diffusion.core import cache
+    from diffusion.core import cache, registry
 
     entry = cache.get_info(repo_id)
 
@@ -24,6 +24,7 @@ def run_info(repo_id: str) -> None:
     table.add_column("value")
     table.add_row("Pipeline", f"{entry.family.label} ({entry.family.id})")
     table.add_row("Size on disk", entry.size_on_disk_str)
+    table.add_row("Inference memory", f"{registry.vram_hint(entry.family)} (fp16, before offload)")
     table.add_row("Components", ", ".join(entry.components) or "—")
     table.add_row("Commit", entry.commit_hash or "—")
     table.add_row("Path", str(entry.local_path))

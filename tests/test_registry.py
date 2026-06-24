@@ -43,3 +43,10 @@ def test_fallbacks() -> None:
     assert registry.GENERIC.supported is True
     assert registry.GENERIC.preview is None
     assert registry.UNKNOWN.supported is False
+
+
+def test_vram_hint() -> None:
+    # Every curated family has a memory estimate; fallbacks have none.
+    for fam in registry.FAMILIES:
+        assert registry.vram_hint(fam).endswith("GB"), fam.id
+    assert registry.vram_hint(registry.GENERIC) == "—"

@@ -117,6 +117,81 @@ class _NarrowPipe:
         return SimpleNamespace(images=["IMG"])
 
 
+class _CallbackPipe:
+    """A pipeline that fires ``callback_on_step_end`` each step, like diffusers.
+
+    ``latents`` (if given) is handed to the callback so preview families can
+    project it; None mimics a family without a latent->RGB projection.
+    """
+
+    def __init__(self, latents=None) -> None:
+        self._latents = latents
+
+    def __call__(
+        self,
+        *,
+        prompt,
+        num_inference_steps,
+        callback_on_step_end=None,
+        callback_on_step_end_tensor_inputs=None,
+        **kwargs,
+    ):
+        for i in range(num_inference_steps):
+            if callback_on_step_end is not None:
+                callback_on_step_end(self, i, 0, {"latents": self._latents})
+        return SimpleNamespace(images=["IMG"])
+
+
+def test_run_inference_reports_progress_without_preview():
+    # Regression: families without a latent->RGB projection (e.g. Sana) must still
+    # fire the per-step callback so the progress bar advances — previously the
+    # callback was gated on a non-None preview, so progress never updated.
+    sana = registry.family_by_id("sana")
+    assert sana is not None and sana.preview is None
+
+    plan = SimpleNamespace(device="cpu", dtype="float32")
+    seen: list[tuple[int, object]] = []
+    run_inference(
+        _CallbackPipe(),
+        sana,
+        plan,
+        prompt="x",
+        negative_prompt=None,
+        steps=5,
+        width=512,
+        height=512,
+        seed=None,
+        low_mem=False,
+        on_preview=lambda i, image: seen.append((i, image)),
+    )
+
+    assert [i for i, _ in seen] == [0, 1, 2, 3, 4]  # fired every step
+    assert all(image is None for _, image in seen)  # no preview, but progress still ran
+
+
+def test_run_inference_yields_preview_for_preview_families():
+    import torch
+
+    plan = SimpleNamespace(device="cpu", dtype="float32")
+    latents = torch.zeros(1, _SDXL.preview.channels, 8, 8)  # (B, C, H, W)
+    seen: list[object] = []
+    run_inference(
+        _CallbackPipe(latents=latents),
+        _SDXL,
+        plan,
+        prompt="x",
+        negative_prompt=None,
+        steps=3,
+        width=512,
+        height=512,
+        seed=None,
+        low_mem=False,
+        on_preview=lambda i, image: seen.append(image),
+    )
+
+    assert len(seen) == 3 and all(image is not None for image in seen)
+
+
 def test_run_inference_filters_unsupported_kwargs(mocker):
     # width/height/negative_prompt are dropped because __call__ doesn't accept them;
     # strength is forwarded because it does.
@@ -133,6 +208,7 @@ def test_run_inference_filters_unsupported_kwargs(mocker):
         height=1024,
         seed=None,
         low_mem=False,
+        force_size=True,
         strength=0.5,
     )
     assert img == "IMG"

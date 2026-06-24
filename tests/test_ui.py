@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import re
+from types import SimpleNamespace
+
+import pytest
 
 from diffusion.utils import ui
 
@@ -62,3 +65,46 @@ def test_make_progress_is_a_progress() -> None:
     from rich.progress import Progress
 
     assert isinstance(ui.make_progress(), Progress)
+
+
+def test_run_with_preview_finishes_kitty_renderer_on_error(monkeypatch) -> None:
+    events: list[str] = []
+
+    class FakeRenderer:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def start(self) -> None:
+            events.append("start")
+
+        def show(self, image, status: str = "") -> None:
+            events.append("show")
+
+        def finish(self) -> None:
+            events.append("finish")
+
+    class FailingGenerate:
+        @staticmethod
+        def run_inference(*args, **kwargs):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr("diffusion.utils.terminal_image.KittyRenderer", FakeRenderer)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        ui.run_with_preview(
+            FailingGenerate,
+            pipe=object(),
+            family=SimpleNamespace(preview=object()),
+            plan=object(),
+            prompt="x",
+            negative_prompt=None,
+            steps=1,
+            width=512,
+            height=512,
+            seed=None,
+            low_mem=False,
+            protocol="kitty",
+            rows=4,
+        )
+
+    assert events == ["start", "finish"]
