@@ -1,4 +1,4 @@
-# diffusion
+# diffusion cli
 
 A unified local diffusion runner: an `ollama run`-style CLI for Hugging Face
 diffusers models.
