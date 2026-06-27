@@ -236,6 +236,39 @@ def chat(
     )
 
 
+@app.command()
+def serve(
+    repo_id: Annotated[str, typer.Argument(help="HuggingFace repo id to serve.")],
+    host: Annotated[str, typer.Option("--host", help="HTTP host to bind.")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", help="HTTP port to bind.")] = 8000,
+    device: Annotated[str | None, typer.Option("--device", help="Force mps, cuda, or cpu.")] = None,
+    dtype: Annotated[
+        str | None, typer.Option("--dtype", help="Force float16, bfloat16, or float32.")
+    ] = None,
+    low_mem: Annotated[bool, typer.Option("--low-mem", help="Slicing + CPU offload.")] = False,
+    force_size: Annotated[
+        bool, typer.Option("--force-size", help="Bypass the memory safety check for requests.")
+    ] = False,
+    sampler: Annotated[
+        str | None,
+        typer.Option("--sampler", help="Sampler: euler, euler-a, dpm++, ddim, unipc, … "),
+    ] = None,
+) -> None:
+    """Serve one loaded model through an OpenAI-compatible image API."""
+    from diffusion.commands.serve import run_serve
+
+    run_serve(
+        repo_id,
+        host=host,
+        port=port,
+        device=device,
+        dtype=dtype,
+        low_mem=low_mem,
+        force_size=force_size,
+        sampler=sampler,
+    )
+
+
 def entrypoint() -> None:
     """Console-script entrypoint that renders expected errors cleanly."""
     from diffusion.utils.errors import DiffusionError

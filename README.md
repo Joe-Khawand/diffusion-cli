@@ -9,6 +9,7 @@ diffusion variants sdxl
 diffusion pull sdxl
 diffusion run sdxl --prompt "a robot in a forest" --output robot.png
 diffusion chat sdxl
+diffusion serve sdxl
 ```
 
 `diffusion` reuses the Hugging Face cache, keeps startup light, downloads lean
@@ -75,6 +76,7 @@ seed, steps, sampler, device, dtype, elapsed time, and model family.
 | `diffusion pull <repo-or-slug>` | Download a model into the Hugging Face cache. |
 | `diffusion run <repo-or-slug>` | Generate one image. |
 | `diffusion chat <repo-or-slug>` | Load once, then generate repeatedly in an interactive prompt loop. |
+| `diffusion serve <repo-or-slug>` | Load once, then serve an OpenAI-compatible local image API. |
 | `diffusion list` | List cached diffusion models. |
 | `diffusion info <repo>` | Show cached model metadata. |
 | `diffusion remove <repo>` | Delete a cached model. |
@@ -156,6 +158,32 @@ DIFFUSION_NO_BORDER=1 diffusion chat sdxl
 
 Previews use a fast latent-to-RGB approximation when the model family supports
 one. Families without preview projections fall back to a progress bar.
+
+## Local HTTP Server
+
+`diffusion serve <repo-or-slug>` loads one text-to-image model and exposes
+OpenAI-compatible image generation on `http://127.0.0.1:8000/v1`.
+
+```bash
+diffusion serve sdxl --port 8000
+```
+
+```bash
+curl http://127.0.0.1:8000/v1/images/generations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "sdxl",
+    "prompt": "a cinematic robot in a pine forest",
+    "size": "512x512",
+    "steps": 8,
+    "seed": 42,
+    "response_format": "b64_json"
+  }'
+```
+
+The v1 server supports `GET /health`, `GET /v1/models`, and
+`POST /v1/images/generations`. It returns base64 PNG images and serializes
+requests through the one loaded pipeline.
 
 ## Memory Safeguards
 

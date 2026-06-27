@@ -15,7 +15,7 @@ runner = CliRunner()
 def test_help_lists_all_commands() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    for command in ("pull", "run", "list", "info", "remove", "catalog"):
+    for command in ("pull", "run", "chat", "serve", "list", "info", "remove", "catalog"):
         assert command in result.output
 
 
@@ -31,6 +31,8 @@ def test_importing_cli_does_not_import_torch() -> None:
         "import sys; import diffusion.cli; "
         "assert 'torch' not in sys.modules, 'torch imported at startup'; "
         "assert 'diffusers' not in sys.modules, 'diffusers imported at startup'; "
+        "assert 'fastapi' not in sys.modules, 'fastapi imported at startup'; "
+        "assert 'uvicorn' not in sys.modules, 'uvicorn imported at startup'; "
         "print('ok')"
     )
     result = subprocess.run(
