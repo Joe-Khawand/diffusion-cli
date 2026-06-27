@@ -16,6 +16,8 @@ diffusion serve sdxl
 weight variants where possible, and runs models locally on Apple Silicon (MPS),
 CUDA, or CPU.
 
+![diffusion chat demo](docs/assets/diffusion-chat-demo.gif)
+
 ## Install
 
 ```bash
