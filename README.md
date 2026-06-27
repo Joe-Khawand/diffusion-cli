@@ -251,13 +251,3 @@ uv build
 The offline suite mocks Hugging Face, diffusers, and torch boundaries. Real model
 smoke tests should be run before a release when cached models or network access
 are available.
-
-## Corporate Proxy / TLS
-
-`huggingface_hub` uses Python's TLS, which trusts `certifi` rather than the macOS
-keychain. Behind a TLS-inspecting proxy, point Python at a CA bundle that includes
-the proxy root certificate:
-
-```bash
-export SSL_CERT_FILE=/path/to/corporate-ca-bundle.pem
-```
