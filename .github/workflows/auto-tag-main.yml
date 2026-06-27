@@ -1,0 +1,36 @@
+name: Auto tag main
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    name: Create main tag
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build tag name
+        id: tag
+        shell: bash
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          stamp="$(date -u +'%Y%m%d%H%M%S')"
+          echo "name=main-${stamp}-${short_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.tag.outputs.name }}" -m "Automated tag for ${GITHUB_SHA}"
+          git push origin "${{ steps.tag.outputs.name }}"
