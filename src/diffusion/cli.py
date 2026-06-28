@@ -237,6 +237,55 @@ def chat(
 
 
 @app.command()
+def agent(
+    repo_id: Annotated[str, typer.Argument(help="HuggingFace repo id to run.")],
+    goal: Annotated[str, typer.Option("--goal", "-g", help="Desired image description.")],
+    max_iterations: Annotated[
+        int, typer.Option("--max-iterations", "-n", help="Maximum refinement iterations.")
+    ] = 5,
+    outdir: Annotated[
+        Path, typer.Option("--output", "-o", help="Output directory for iterations.")
+    ] = Path("agent_output"),
+    steps: Annotated[int, typer.Option("--steps", help="Inference steps per image.")] = 25,
+    width: Annotated[int, typer.Option("--width", help="Image width in pixels.")] = 512,
+    height: Annotated[int, typer.Option("--height", help="Image height in pixels.")] = 512,
+    seed: Annotated[
+        int | None, typer.Option("--seed", help="Fixed seed (default: random per iteration).")
+    ] = None,
+    device: Annotated[str | None, typer.Option("--device", help="Force mps, cuda, or cpu.")] = None,
+    dtype: Annotated[
+        str | None, typer.Option("--dtype", help="Force float16, bfloat16, float32.")
+    ] = None,
+    low_mem: Annotated[bool, typer.Option("--low-mem", help="Slicing + CPU offload.")] = False,
+    force_size: Annotated[
+        bool, typer.Option("--force-size", help="Bypass memory safety check.")
+    ] = False,
+    sampler: Annotated[
+        str | None,
+        typer.Option("--sampler", help="Sampler: euler, euler-a, dpm++, ddim, unipc, … "),
+    ] = None,
+) -> None:
+    """Refine an image iteratively using Claude's vision to critique and improve prompts."""
+    from diffusion.commands.agent import run_agent
+
+    run_agent(
+        repo_id=repo_id,
+        goal=goal,
+        max_iterations=max_iterations,
+        outdir=outdir,
+        steps=steps,
+        width=width,
+        height=height,
+        seed=seed,
+        device=device,
+        dtype=dtype,
+        low_mem=low_mem,
+        force_size=force_size,
+        sampler=sampler,
+    )
+
+
+@app.command()
 def serve(
     repo_id: Annotated[str, typer.Argument(help="HuggingFace repo id to serve.")],
     host: Annotated[str, typer.Option("--host", help="HTTP host to bind.")] = "127.0.0.1",
